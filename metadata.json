@@ -1,0 +1,8 @@
+{
+  "name": "Copy of BACKUP## of TEXA-Ai Digital Marketplace",
+  "description": "A premium AI tools distribution platform with subscription management and session injection simulation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

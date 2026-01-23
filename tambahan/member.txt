@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Manager TEXA admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Konfigurasi Firebase (Custom Project: tekno-335f8) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAUSD1JPLIM3JstfC5vG_jdnek0FrcNdHA",
+            authDomain: "texa-ai.firebaseapp.com",
+            projectId: "texa-ai",
+            storageBucket: "texa-ai.firebasestorage.app",
+            messagingSenderId: "727237042267",
+            appId: "1:727237042267:web:244ccca7363b20377f9f7e"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- PERUBAHAN PENTING UNTUK MEMISAHKAN DATABASE ---
+        const appId = 'texa-admin-v2';
+        const COLLECTION_NAME = 'public_tokens';
+
+        let currentUser = null;
+
+        // --- Logic Aplikasi ---
+
+        // 1. Authentikasi & Listener
+        async function initApp() {
+            try {
+                await signInAnonymously(auth);
+            } catch (error) {
+                console.error("Auth Error:", error);
+                showToast("Gagal koneksi database: " + error.message);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                console.log("Connected as:", user.uid);
+                setupRealtimeListener();
+                document.getElementById('loading-overlay').classList.add('hidden');
+            }
+        });
+
+        // 2. Setup Listener Data (Realtime)
+        function setupRealtimeListener() {
+            const q = collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME);
+
+            onSnapshot(q, (snapshot) => {
+                const members = [];
+                snapshot.forEach((doc) => {
+                    members.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Sorting di client side
+                members.sort((a, b) => new Date(a.endDate) - new Date(b.endDate));
+
+                renderTable(members);
+                updateSummary(members);
+            }, (error) => {
+                console.error("Error reading data:", error);
+                showToast("Error memuat data. Periksa Rules Firestore Anda.");
+            });
+        }
+
+        // 3. Tambah Member Baru
+        document.getElementById('addMemberForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUser) {
+                showToast("Menunggu koneksi database...");
+                return;
+            }
+
+            // Ambil Value Input
+            const email = document.getElementById('email').value;
+            const tokenCode = document.getElementById('tokenCode').value;
+            const appName = document.getElementById('appName').value;
+            const price = document.getElementById('price').value;
+            const durationType = document.getElementById('duration').value;
+            const customDays = parseInt(document.getElementById('customDays').value) || 0;
+            const submitBtn = document.getElementById('submitBtn');
+
+            // Validasi sederhana
+            if (!email && !tokenCode) {
+                showToast("Mohon isi Email atau Kode Token!");
+                return;
+            }
+
+            // Kalkulasi Tanggal
+            const startDate = new Date();
+            let endDate = new Date();
+            let durationLabel = "";
+
+            if (durationType === '1week') {
+                endDate.setDate(startDate.getDate() + 7);
+                durationLabel = "1 Minggu";
+            } else if (durationType === '1month') {
+                endDate.setMonth(startDate.getMonth() + 1);
+                durationLabel = "1 Bulan";
+            } else if (durationType === 'custom') {
+                if (customDays <= 0) {
+                    showToast("Jumlah hari harus lebih dari 0");
+                    return;
+                }
+                endDate.setDate(startDate.getDate() + customDays);
+                durationLabel = `${customDays} Hari`;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan...';
+
+            try {
+                const newMember = {
+                    email: email || "No Email",
+                    token: tokenCode || "",
+                    appName: appName || "Umum", // Default app
+                    price: price ? Number(price) : 0, // Simpan harga
+                    startDate: startDate.toISOString(),
+                    endDate: endDate.toISOString(),
+                    durationLabel: durationLabel,
+                    createdAt: new Date().toISOString()
+                };
+
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME), newMember);
+
+                // Reset Form
+                document.getElementById('addMemberForm').reset();
+                toggleCustomInput();
+                showToast("Member berhasil ditambahkan!");
+
+            } catch (error) {
+                console.error("Error adding document: ", error);
+                showToast("Gagal menyimpan data: " + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-save"></i> Simpan';
+            }
+        });
+
+        // 4. Hapus Member
+        window.deleteMember = async (id) => {
+            if (!confirm("Apakah Anda yakin ingin menghapus data member ini?")) return;
+
+            try {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, id));
+                showToast("Member dihapus.");
+            } catch (error) {
+                console.error("Error removing document: ", error);
+                showToast("Gagal menghapus data.");
+            }
+        };
+
+        // 5. Render Helper
+        function renderTable(members) {
+            const tbody = document.getElementById('memberTableBody');
+            tbody.innerHTML = '';
+
+            if (members.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-gray-500">Belum ada data member.</td></tr>`;
+                return;
+            }
+
+            // Formatter Rupiah
+            const formatter = new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0
+            });
+
+            members.forEach(member => {
+                const start = new Date(member.startDate);
+                const end = new Date(member.endDate);
+                const now = new Date();
+                const diffTime = end - now;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                let statusBadge = '';
+                let rowClass = 'hover:bg-gray-50';
+                let timeLeftText = '';
+
+                if (diffTime > 0) {
+                    statusBadge = `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Aktif</span>`;
+                    timeLeftText = `${diffDays} hari lagi`;
+                } else {
+                    statusBadge = `<span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Expired</span>`;
+                    rowClass = 'bg-red-50 hover:bg-red-100'; 
+                    timeLeftText = 'Sudah berakhir';
+                }
+
+                // Display Token Logic
+                const tokenDisplay = member.token 
+                    ? `<div class="flex items-center gap-1">
+                         <code class="bg-gray-100 border border-gray-300 px-2 py-0.5 rounded text-sm font-mono text-gray-700">${member.token}</code>
+                         <button onclick="copyText('${member.token}')" class="text-gray-400 hover:text-blue-500 text-xs p-1" title="Copy Token"><i class="fas fa-copy"></i></button>
+                       </div>`
+                    : '<span class="text-gray-400 italic text-xs">--</span>';
+
+                // Display Price Logic
+                const priceDisplay = member.price ? formatter.format(member.price) : 'Free';
+
+                // Display App Name
+                const appNameDisplay = member.appName ? `<span class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">${member.appName}</span>` : '-';
+
+                const tr = document.createElement('tr');
+                tr.className = `border-b ${rowClass} transition-colors`;
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-medium text-gray-900 flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                            ${member.email.charAt(0).toUpperCase()}
+                        </div>
+                        <div class="overflow-hidden text-ellipsis whitespace-nowrap max-w-[150px]" title="${member.email}">
+                            ${member.email}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">${tokenDisplay}</td>
+                    <td class="px-6 py-4">${appNameDisplay}</td>
+                    <td class="px-6 py-4 font-mono text-sm text-gray-700">${priceDisplay}</td>
+                    <td class="px-6 py-4 text-gray-600 text-xs">${member.durationLabel}</td>
+                    <td class="px-6 py-4 text-gray-500 text-xs">
+                        ${end.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                        <br>${end.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="flex flex-col items-start gap-1">
+                            ${statusBadge}
+                            <span class="text-xs ${diffDays <= 3 && diffDays > 0 ? 'text-orange-600 font-bold' : 'text-gray-500'}">
+                                ${timeLeftText}
+                            </span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-right">
+                        <button onclick="deleteMember('${member.id}')" class="text-red-500 hover:text-red-700 transition-colors p-2 rounded hover:bg-red-100">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function updateSummary(members) {
+            const now = new Date();
+            const activeCount = members.filter(m => new Date(m.endDate) > now).length;
+            // Hitung total pendapatan (sederhana)
+            const totalRevenue = members.reduce((sum, m) => sum + (m.price || 0), 0);
+            
+            document.getElementById('totalMembers').innerText = members.length;
+            document.getElementById('activeMembers').innerText = activeCount;
+            // Optional: Update UI revenue jika ada elemennya, saat ini belum ada di HTML
+        }
+
+        // Helper UI
+        window.toggleCustomInput = () => {
+            const select = document.getElementById('duration');
+            const customDiv = document.getElementById('customDaysContainer');
+            if (select.value === 'custom') {
+                customDiv.classList.remove('hidden');
+                document.getElementById('customDays').required = true;
+                setTimeout(() => document.getElementById('customDays').focus(), 100);
+            } else {
+                customDiv.classList.add('hidden');
+                document.getElementById('customDays').required = false;
+            }
+        };
+
+        function showToast(message) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 translate-y-20 opacity-0 mb-2 flex items-center gap-2';
+            toast.innerHTML = `<i class="fas fa-info-circle text-blue-400"></i> ${message}`;
+            container.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.remove('translate-y-20', 'opacity-0'));
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        window.copyText = (text) => {
+            const tempInput = document.createElement("input");
+            tempInput.value = text;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand("copy");
+            document.body.removeChild(tempInput);
+            showToast("Disalin ke clipboard!");
+        }
+
+        initApp();
+    </script>
+</head>
+
+<body class="bg-gray-100 font-sans min-h-screen">
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-100 border-t-blue-600 mb-4"></div>
+        <p class="text-gray-500 animate-pulse">Menghubungkan ke Database...</p>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col items-end"></div>
+
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+
+        <!-- Header -->
+        <div class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                    <i class="fas fa-id-card text-blue-600"></i> Subscription Manager TEXA admin
+                </h1>
+                <p class="text-gray-500 mt-1 ml-1">Kelola akses dan sesi member</p>
+            </div>
+            <div class="flex gap-4 w-full md:w-auto">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex-1 md:flex-none min-w-[140px]">
+                    <span class="block text-xs text-gray-500 uppercase font-semibold tracking-wider">Total Member</span>
+                    <span class="text-2xl font-bold text-gray-800 mt-1 block" id="totalMembers">0</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex-1 md:flex-none min-w-[140px]">
+                    <span class="block text-xs text-gray-500 uppercase font-semibold tracking-wider">Member Aktif</span>
+                    <span class="text-2xl font-bold text-green-600 mt-1 block" id="activeMembers">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Form Input -->
+        <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-6 mb-8 border border-gray-200">
+            <h2 class="text-lg font-semibold text-gray-700 mb-6 border-b pb-2 flex items-center">
+                <span class="bg-blue-100 text-blue-600 p-2 rounded-lg mr-3">
+                    <i class="fas fa-user-plus"></i>
+                </span>
+                Tambah Langganan Baru
+            </h2>
+            <form id="addMemberForm" class="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
+
+                <!-- Row 1: Identitas -->
+                <!-- Email Input -->
+                <div class="md:col-span-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email Member</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fas fa-envelope"></i>
+                        </span>
+                        <input type="email" id="email" placeholder="user@example.com (Opsional)"
+                            class="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder-gray-400">
+                    </div>
+                </div>
+
+                <!-- Token Input -->
+                <div class="md:col-span-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Kode Token / ID Manual</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fas fa-key"></i>
+                        </span>
+                        <input type="text" id="tokenCode" placeholder="Contoh: PREMIUM-001"
+                            class="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder-gray-400 font-mono">
+                    </div>
+                </div>
+
+                <!-- Row 2: Detail Transaksi -->
+                <!-- App Input (Changed from Select to Input Text) -->
+                <div class="md:col-span-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nama Aplikasi</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fas fa-mobile-alt"></i>
+                        </span>
+                        <input type="text" id="appName" placeholder="Contoh: TEXA Stock"
+                            class="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder-gray-400">
+                    </div>
+                </div>
+
+                <!-- Price Input -->
+                <div class="md:col-span-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nominal (IDR)</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 font-semibold text-xs">
+                            Rp
+                        </span>
+                        <input type="number" id="price" placeholder="0" min="0" step="1000"
+                            class="w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder-gray-400">
+                    </div>
+                </div>
+
+                <!-- Duration Select -->
+                <div class="md:col-span-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Durasi</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fas fa-clock"></i>
+                        </span>
+                        <select id="duration" onchange="toggleCustomInput()"
+                            class="w-full pl-10 pr-8 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white appearance-none cursor-pointer">
+                            <option value="1week">1 Minggu</option>
+                            <option value="1month">1 Bulan</option>
+                            <option value="custom">Custom Hari</option>
+                        </select>
+                        <span class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
+                            <i class="fas fa-chevron-down text-xs"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Row 3: Action & Extra -->
+                <!-- Custom Days (Hidden by default) -->
+                <div class="md:col-span-6 hidden" id="customDaysContainer">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Jumlah Hari</label>
+                    <input type="number" id="customDays" min="1" placeholder="3"
+                        class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+
+                <!-- Submit Button -->
+                <div class="md:col-span-12 mt-2">
+                    <button type="submit" id="submitBtn"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg shadow-sm hover:shadow transition-all flex justify-center items-center gap-2 transform active:scale-[0.99]">
+                        <i class="fas fa-save"></i> Simpan Transaksi & Member
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Table List -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                <h3 class="font-semibold text-gray-700">Daftar Member</h3>
+                <span class="text-xs text-gray-500 bg-white border px-2 py-1 rounded">Realtime Updates</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-xs tracking-wider">
+                            <th class="px-6 py-3 font-semibold">User</th>
+                            <th class="px-6 py-3 font-semibold">Token</th>
+                            <th class="px-6 py-3 font-semibold">Aplikasi</th>
+                            <th class="px-6 py-3 font-semibold">Harga</th>
+                            <th class="px-6 py-3 font-semibold">Paket</th>
+                            <th class="px-6 py-3 font-semibold">Berakhir</th>
+                            <th class="px-6 py-3 font-semibold">Status</th>
+                            <th class="px-6 py-3 font-semibold text-right">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="memberTableBody" class="divide-y divide-gray-200">
+                        <!-- Data will be loaded here via JS -->
+                        <tr>
+                            <td colspan="9" class="text-center py-12 text-gray-400">
+                                <div class="flex flex-col items-center">
+                                    <i class="fas fa-spinner fa-spin text-2xl mb-2 text-blue-500"></i>
+                                    <span>Memuat data...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="mt-6 text-center text-xs text-gray-400 font-mono">
+            Firestore Path: /artifacts/{appId}/public/data/public_tokens
+        </div>
+    </div>
+
+</body>
+
+</html>

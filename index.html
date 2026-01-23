@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>TEXA-Ai | Akses AI Premium Indonesia Tanpa Ribet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap"
+    rel="stylesheet">
+  <style>
+    /* ===== THEME VARIABLES ===== */
+    :root {
+      --smooth-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      
+      /* Light Theme */
+      --glass-bg: rgba(255, 255, 255, 0.75);
+      --glass-bg-strong: rgba(255, 255, 255, 0.9);
+      --glass-border: rgba(0, 0, 0, 0.08);
+      --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+      --glass-blur: 16px;
+      
+      --text-primary: #1e293b;
+      --text-secondary: #64748b;
+      --text-muted: #94a3b8;
+      
+      --bg-primary: #f8fafc;
+      --bg-secondary: #e2e8f0;
+      --bg-grid-line: rgba(0, 0, 0, 0.04);
+      
+      --accent-primary: #4f46e5;
+      --accent-glow: rgba(79, 70, 229, 0.3);
+    }
+
+    /* Dark Theme */
+    .dark {
+      --glass-bg: rgba(15, 23, 42, 0.75);
+      --glass-bg-strong: rgba(15, 23, 42, 0.92);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --glass-blur: 16px;
+      
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      
+      --bg-primary: #020617;
+      --bg-secondary: #0f172a;
+      --bg-grid-line: rgba(255, 255, 255, 0.03);
+      
+      --accent-primary: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.4);
+    }
+
+    /* ===== BASE STYLES ===== */
+    * {
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    html {
+      color-scheme: dark light;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      overflow-x: hidden;
+      scroll-behavior: auto;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior-y: contain;
+      touch-action: pan-x pan-y;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .bg-grid {
+      background-size: 40px 40px;
+      background-image:
+        linear-gradient(to right, var(--bg-grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--bg-grid-line) 1px, transparent 1px);
+    }
+
+    /* ===== GLASS UTILITIES ===== */
+    .glass {
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .glass-strong {
+      background: var(--glass-bg-strong);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .glass-chip {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+      transition: all 0.2s ease;
+    }
+
+    .glass-chip:hover {
+      border-color: var(--accent-primary);
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .glass-card:hover {
+      border-color: rgba(99, 102, 241, 0.4);
+      box-shadow: 0 12px 40px var(--accent-glow);
+    }
+
+    /* Touch device optimizations */
+    @media (pointer: coarse) {
+      .glass,
+      .glass-strong,
+      .glass-chip,
+      .glass-card {
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+      
+      .dark .glass,
+      .dark .glass-strong {
+        background: rgba(15, 23, 42, 0.95);
+      }
+    }
+
+    /* ===== THEME TEXT UTILITIES ===== */
+    .text-theme-primary {
+      color: var(--text-primary);
+    }
+    
+    .text-theme-secondary {
+      color: var(--text-secondary);
+    }
+    
+    .text-theme-muted {
+      color: var(--text-muted);
+    }
+
+    /* ===== GRADIENTS ===== */
+    .premium-gradient {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #db2777 100%);
+      background-size: 200% 200%;
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-10px);
+      }
+    }
+
+    .animate-float {
+      animation: float 6s ease-in-out infinite;
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Updated hero-title to be wider and more compact vertically */
+    .hero-title {
+      font-size: clamp(1.8rem, 6vw, 3.8rem);
+      line-height: 1.2;
+      letter-spacing: -0.04em;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Smooth animation for popups and transitions */
+    .smooth-animate {
+      transition: var(--smooth-transition);
+    }
+
+    /* Responsive fixes */
+    @media (max-width: 640px) {
+      .container {
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+    }
+
+    /* Hide scrollbar on popup but allow scrolling */
+    .popup-scroll {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Safe area for mobile devices */
+    @supports (padding: max(0px)) {
+      body {
+        padding-left: max(0px, env(safe-area-inset-left));
+        padding-right: max(0px, env(safe-area-inset-right));
+        padding-bottom: max(0px, env(safe-area-inset-bottom));
+      }
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.12.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+    "gsap": "https://esm.sh/gsap@^3.12.5"
+  }
+}
+</script>
+</head>
+
+<body class="bg-grid">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>

@@ -1,0 +1,16 @@
+
+.text-type {
+  display: inline-block;
+}
+.text-type__content {
+  white-space: pre-wrap;
+}
+.text-type__cursor {
+  display: inline-block;
+  margin-left: 2px;
+  font-weight: 200;
+  color: inherit;
+}
+.text-type__cursor--hidden {
+  display: none;
+}

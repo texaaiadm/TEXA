@@ -1,0 +1,109 @@
+{
+  "manifest_version": 3,
+  "name": "TEXA-Ai Manager",
+  "version": "1.0.0",
+  "description": "Mengelola tools dari dashboard TEXA secara aman dan terintegrasi.",
+  "icons": {
+    "16": "icon/icon16.png",
+    "48": "icon/icon48.png",
+    "128": "icon/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "cookies",
+    "tabs",
+    "notifications",
+    "scripting",
+    "alarms",
+    "activeTab",
+    "webNavigation",
+    "offscreen",
+    "identity"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "oauth2": {
+    "client_id": "246018596207-12u4oi8t645pjeqrdvh28duuatofochp.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://localhost:3000/*",
+        "http://127.0.0.1/*",
+        "https://*.vercel.app/*",
+        "https://texa-canvas.vercel.app/*"
+      ],
+      "js": [
+        "contentScript.js"
+      ],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://labs.google/*",
+        "*://labs.google/*"
+      ],
+      "js": [
+        "content.js",
+        "overlayScript.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://toket.teknoaiglobal.com/*"
+      ],
+      "js": [
+        "assets/content.ts-DjRJowkR.js"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "injectedScript.js"
+      ],
+      "matches": [
+        "http://localhost/*",
+        "https://*.vercel.app/*"
+      ]
+    },
+    {
+      "matches": [
+        "https://toket.teknoaiglobal.com/*"
+      ],
+      "resources": [
+        "assets/content.ts-DjRJowkR.js"
+      ],
+      "use_dynamic_url": false
+    },
+    {
+      "resources": [
+        "icon/icon16.png",
+        "icon/icon48.png",
+        "icon/icon128.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TEXA-Ai Manager",
+    "default_icon": {
+      "16": "icon/icon16.png",
+      "48": "icon/icon48.png",
+      "128": "icon/icon128.png"
+    }
+  }
+}

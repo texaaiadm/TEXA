@@ -18,7 +18,7 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
     const [settings, setSettings] = useState<SubscriptionSettings>(DEFAULT_SETTINGS);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeSection, setActiveSection] = useState<'urls' | 'packages' | 'ui' | 'features'>('urls');
+    const [activeSection, setActiveSection] = useState<'urls' | 'packages' | 'perTool' | 'ui' | 'features'>('urls');
     const [editingPackage, setEditingPackage] = useState<SubscriptionPackage | null>(null);
     const [showPackageModal, setShowPackageModal] = useState(false);
 
@@ -151,6 +151,7 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                 {[
                     { id: 'urls', label: '🔗 URL & Webhook', icon: '🔗' },
                     { id: 'packages', label: '📦 Paket Harga', icon: '📦' },
+                    { id: 'perTool', label: '🛒 Jual Satuan', icon: '🛒' },
                     { id: 'ui', label: '🎨 Tampilan', icon: '🎨' },
                     { id: 'features', label: '⚙️ Fitur', icon: '⚙️' }
                 ].map((tab) => (
@@ -158,8 +159,8 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                         key={tab.id}
                         onClick={() => setActiveSection(tab.id as any)}
                         className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${activeSection === tab.id
-                                ? 'bg-indigo-600 text-white shadow-lg'
-                                : 'text-slate-400 hover:text-white hover:bg-white/5'
+                            ? 'bg-indigo-600 text-white shadow-lg'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
                             }`}
                     >
                         {tab.label}
@@ -348,6 +349,197 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                                 </div>
                             </div>
                         ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Per-Tool Purchase Section */}
+            {activeSection === 'perTool' && (
+                <div className="glass rounded-2xl p-6 border border-white/10 space-y-6">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                            🛒 Pengaturan Penjualan Satuan
+                        </h3>
+                        <div className="flex items-center gap-3">
+                            <span className="text-sm text-slate-400">Aktifkan Jual Satuan</span>
+                            <button
+                                onClick={() => setSettings({ ...settings, enablePerToolPurchase: !settings.enablePerToolPurchase })}
+                                className={`w-14 h-8 rounded-full transition-all relative ${settings.enablePerToolPurchase !== false ? 'bg-emerald-600' : 'bg-slate-700'}`}
+                            >
+                                <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${settings.enablePerToolPurchase !== false ? 'right-1' : 'left-1'}`}></div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <p className="text-slate-400 text-sm">
+                        Dengan fitur ini, user bisa membeli akses tool per satuan dengan pilihan durasi (7 hari, 2 minggu, atau 1 bulan).
+                    </p>
+
+                    {/* Duration Tiers Management */}
+                    <div className="border-t border-white/10 pt-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-sm font-bold text-white">⏱️ Pilihan Durasi</h4>
+                            <button
+                                onClick={() => {
+                                    const newTier = {
+                                        id: `tier-${Date.now()}`,
+                                        name: '',
+                                        duration: 7,
+                                        price: 15000,
+                                        active: true
+                                    };
+                                    setSettings({
+                                        ...settings,
+                                        perToolDurationTiers: [...(settings.perToolDurationTiers || []), newTier]
+                                    });
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all"
+                            >
+                                + Tambah Durasi
+                            </button>
+                        </div>
+
+                        <div className="space-y-3">
+                            {(settings.perToolDurationTiers || []).map((tier, index) => (
+                                <div key={tier.id} className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 transition-all">
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                        {/* Name */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Nama</label>
+                                            <input
+                                                type="text"
+                                                value={tier.name}
+                                                onChange={(e) => {
+                                                    const tiers = [...(settings.perToolDurationTiers || [])];
+                                                    tiers[index] = { ...tier, name: e.target.value };
+                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
+                                                }}
+                                                placeholder="7 Hari"
+                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
+                                            />
+                                        </div>
+                                        {/* Duration */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Durasi (Hari)</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={tier.duration}
+                                                onChange={(e) => {
+                                                    const tiers = [...(settings.perToolDurationTiers || [])];
+                                                    tiers[index] = { ...tier, duration: parseInt(e.target.value) || 1 };
+                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
+                                                }}
+                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
+                                            />
+                                        </div>
+                                        {/* Price */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Harga (Rp)</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={tier.price}
+                                                onChange={(e) => {
+                                                    const tiers = [...(settings.perToolDurationTiers || [])];
+                                                    tiers[index] = { ...tier, price: parseInt(e.target.value) || 0 };
+                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
+                                                }}
+                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
+                                            />
+                                        </div>
+                                        {/* Discount Price */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Harga Diskon</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={tier.discountPrice || ''}
+                                                onChange={(e) => {
+                                                    const tiers = [...(settings.perToolDurationTiers || [])];
+                                                    const val = parseInt(e.target.value);
+                                                    tiers[index] = { ...tier, discountPrice: val > 0 ? val : undefined };
+                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
+                                                }}
+                                                placeholder="Opsional"
+                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
+                                            />
+                                        </div>
+                                        {/* Actions */}
+                                        <div className="flex items-end gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    const tiers = [...(settings.perToolDurationTiers || [])];
+                                                    tiers[index] = { ...tier, popular: !tier.popular };
+                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
+                                                }}
+                                                className={`px-2 py-2 rounded-lg text-xs font-bold transition-all ${tier.popular ? 'bg-amber-500 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
+                                                title="Populer"
+                                            >
+                                                ⭐
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const tiers = [...(settings.perToolDurationTiers || [])];
+                                                    tiers[index] = { ...tier, active: !tier.active };
+                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
+                                                }}
+                                                className={`px-2 py-2 rounded-lg text-xs font-bold transition-all ${tier.active ? 'bg-emerald-600 text-white' : 'bg-red-500/20 text-red-400'}`}
+                                                title={tier.active ? 'Aktif' : 'Nonaktif'}
+                                            >
+                                                {tier.active ? '✓' : '✗'}
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const tiers = (settings.perToolDurationTiers || []).filter((_, i) => i !== index);
+                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
+                                                }}
+                                                className="px-2 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs font-bold transition-all"
+                                                title="Hapus"
+                                            >
+                                                🗑️
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {tier.discountPrice && tier.discountPrice > 0 && (
+                                        <p className="text-[10px] text-emerald-400 mt-2">
+                                            Preview: <span className="line-through text-slate-500">{formatIDR(tier.price)}</span> → {formatIDR(tier.discountPrice)}
+                                        </p>
+                                    )}
+                                </div>
+                            ))}
+
+                            {(!settings.perToolDurationTiers || settings.perToolDurationTiers.length === 0) && (
+                                <div className="text-center py-8 text-slate-500">
+                                    <p className="text-4xl mb-2">⏱️</p>
+                                    <p>Belum ada pilihan durasi. Klik "Tambah Durasi" untuk memulai.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="border-t border-white/10 pt-4">
+                        <h4 className="text-sm font-bold text-white mb-4">🔗 URL Pembayaran Satuan</h4>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">
+                                Payment URL Khusus Eceran
+                            </label>
+                            <input
+                                type="url"
+                                value={settings.perToolPaymentUrl || ''}
+                                onChange={(e) => setSettings({ ...settings, perToolPaymentUrl: e.target.value })}
+                                placeholder="https://tripay.co.id/checkout/eceran"
+                                className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Kosongkan untuk menggunakan Payment URL utama</p>
+                        </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                        <p className="text-emerald-400 text-sm font-bold mb-1">💡 Tips</p>
+                        <p className="text-slate-400 text-xs">
+                            Pilihan durasi ini akan muncul di popup checkout ketika user memilih "Beli Satuan". User bisa pilih antara 7 hari, 2 minggu, atau 1 bulan sesuai tier yang Anda buat.
+                        </p>
                     </div>
                 </div>
             )}

@@ -4,6 +4,7 @@ import {
     getFooterSettings,
     updateFooterSettings,
     updateSocialMediaLink,
+    DEFAULT_FOOTER_SETTINGS,
     FooterSettings,
     SocialMediaLink
 } from '../services/footerService';
@@ -67,13 +68,40 @@ export default function FooterManager({ showToast }: FooterManagerProps) {
                 setMapsUrl(data.mapsUrl);
                 setMapsEmbedUrl(data.mapsEmbedUrl);
             } else {
-                setError('No data returned from Firebase');
+                setSettings(DEFAULT_FOOTER_SETTINGS);
+                setCompanyName(DEFAULT_FOOTER_SETTINGS.companyName);
+                setCompanyTagline(DEFAULT_FOOTER_SETTINGS.companyTagline);
+                setCopyrightText(DEFAULT_FOOTER_SETTINGS.copyrightText);
+                setWhatsappUrl(DEFAULT_FOOTER_SETTINGS.whatsappUrl);
+                setEmail(DEFAULT_FOOTER_SETTINGS.email || '');
+                setPhone(DEFAULT_FOOTER_SETTINGS.phone || '');
+                setAddressLine1(DEFAULT_FOOTER_SETTINGS.addressLine1);
+                setAddressLine2(DEFAULT_FOOTER_SETTINGS.addressLine2 || '');
+                setCity(DEFAULT_FOOTER_SETTINGS.city);
+                setCountry(DEFAULT_FOOTER_SETTINGS.country);
+                setMapsUrl(DEFAULT_FOOTER_SETTINGS.mapsUrl);
+                setMapsEmbedUrl(DEFAULT_FOOTER_SETTINGS.mapsEmbedUrl);
+                setError(null);
+                showToast('⚠️ No data returned from Firebase, using defaults', 'error');
             }
         } catch (err: any) {
             console.error('Error loading footer settings:', err);
             const errorMsg = err?.message || 'Failed to load settings';
-            setError(errorMsg);
             showToast('⚠️ ' + errorMsg, 'error');
+            setSettings(DEFAULT_FOOTER_SETTINGS);
+            setCompanyName(DEFAULT_FOOTER_SETTINGS.companyName);
+            setCompanyTagline(DEFAULT_FOOTER_SETTINGS.companyTagline);
+            setCopyrightText(DEFAULT_FOOTER_SETTINGS.copyrightText);
+            setWhatsappUrl(DEFAULT_FOOTER_SETTINGS.whatsappUrl);
+            setEmail(DEFAULT_FOOTER_SETTINGS.email || '');
+            setPhone(DEFAULT_FOOTER_SETTINGS.phone || '');
+            setAddressLine1(DEFAULT_FOOTER_SETTINGS.addressLine1);
+            setAddressLine2(DEFAULT_FOOTER_SETTINGS.addressLine2 || '');
+            setCity(DEFAULT_FOOTER_SETTINGS.city);
+            setCountry(DEFAULT_FOOTER_SETTINGS.country);
+            setMapsUrl(DEFAULT_FOOTER_SETTINGS.mapsUrl);
+            setMapsEmbedUrl(DEFAULT_FOOTER_SETTINGS.mapsEmbedUrl);
+            setError(null);
         } finally {
             setLoading(false);
         }

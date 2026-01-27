@@ -9,9 +9,9 @@ const Hero: React.FC = () => {
         <img 
           src="https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=2000" 
           alt="Tech Background" 
-          className="w-full h-full object-cover grayscale brightness-[0.12]"
+          className="w-full h-full object-cover grayscale brightness-[0.25] opacity-40"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#020617] via-[#020617]/10 to-[#020617]"></div>
+        <div className="absolute inset-0 pointer-events-none rounded-[32px] md:rounded-[40px] bg-gradient-to-br from-[rgba(255,255,255,0.12)] via-[rgba(255,255,255,0.06)] to-[rgba(255,255,255,0.02)] backdrop-blur-[25px] backdrop-saturate-150 border border-white/35 shadow-[0_8px_32px_0_rgba(0,0,0,0.45)]"></div>
         {/* Very subtle glow to keep vertical space clean */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-indigo-500/5 blur-[80px] rounded-full"></div>
       </div>

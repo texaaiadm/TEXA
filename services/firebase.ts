@@ -78,7 +78,7 @@ const getAuthErrorMessage = (error: any, fallbackMessage: string): string => {
 const PRIMARY_CONFIG = {
   apiKey: "AIzaSyAUSD1JPLIM3JstfC5vG_jdnek0FrcNdHA",
   authDomain: "texa-ai.firebaseapp.com",
-  databaseURL: "https://texa-ai-default-rtdb.firebaseio.com",
+  databaseURL: "https://texa-ai-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "texa-ai",
   storageBucket: "texa-ai.firebasestorage.app",
   messagingSenderId: "727237042267",
@@ -99,7 +99,7 @@ const BACKUP_CONFIG_1 = {
 const BACKUP_CONFIG_2 = {
   apiKey: "AIzaSyAUSD1JPLIM3JstfC5vG_jdnek0FrcNdHA",
   authDomain: "texa-ai.firebaseapp.com",
-  databaseURL: "https://texa-ai-default-rtdb.firebaseio.com",
+  databaseURL: "https://texa-ai-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "texa-ai",
   storageBucket: "texa-ai.firebasestorage.app",
   messagingSenderId: "727237042267",
@@ -153,7 +153,7 @@ export const RTDB_PATHS = {
 const app: FirebaseApp = initializeApp(TEXA_FIREBASE_CONFIG);
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
-export const rtdb: Database = getDatabase(app);
+export const rtdb: Database = getDatabase(app, TEXA_FIREBASE_CONFIG.databaseURL);
 
 // ============================================
 // INITIALIZE FIREBASE - BACKUP 1 (texa-ai)
@@ -166,7 +166,7 @@ export const backupDb1: Firestore = getFirestore(backupApp1);
 // ============================================
 const backupApp2: FirebaseApp = initializeApp(BACKUP_CONFIG_2, 'backup2');
 export const backupDb: Firestore = getFirestore(backupApp2);
-export const backupRtdb: Database = getDatabase(backupApp2);
+export const backupRtdb: Database = getDatabase(backupApp2, BACKUP_CONFIG_2.databaseURL);
 
 // Log active projects (development only)
 if (import.meta.env.DEV) {
@@ -197,31 +197,18 @@ export interface TexaUser {
   lastLogin?: string;
 }
 
-// Admin Emails (can be extended)
 const ADMIN_EMAILS = [
-  'teknoaiglobal.adm@gmail.com',
-  'teknoaiglobal@gmail.com',
-  'teknoaurora@gmail.com',
-  'tekno.x.aurora@gmail.com',
-  'admin@texa.id',
-  // Add more admin emails below:
+  'teknoaiglobal.adm@gmail.com'
 ];
+
+const normalizeEmail = (email: string) => (email || '').toLowerCase().trim();
 
 // Check if user is admin
 const checkIfAdmin = (email: string): boolean => {
-  // 🔧 DEVELOPMENT MODE: All authenticated users get admin access
-  // Remove this condition for production!
-  if (import.meta.env.DEV) {
-    console.log('🔓 DEV MODE: Auto-granting admin access to:', email || 'unknown user');
-    return true;
-  }
-
-  const normalizedEmail = (email || '').toLowerCase().trim();
+  const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return false;
 
-  return ADMIN_EMAILS.some(adminEmail =>
-    normalizedEmail === adminEmail.toLowerCase()
-  );
+  return ADMIN_EMAILS.some((adminEmail) => normalizedEmail === adminEmail.toLowerCase());
 };
 
 // Create or Update User in Firestore
@@ -229,8 +216,8 @@ const saveUserToDatabase = async (firebaseUser: FirebaseUser, additionalData?: P
   const userRef = doc(db, COLLECTIONS.USERS, firebaseUser.uid);
   const userSnap = await withTimeout(getDoc(userRef), 8000);
 
-  const isAdmin = checkIfAdmin(firebaseUser.email || '');
-  const normalizedEmail = (firebaseUser.email || '').trim().toLowerCase();
+  const normalizedEmail = normalizeEmail(firebaseUser.email || '');
+  const isAdmin = checkIfAdmin(normalizedEmail);
 
   let preCreatedDoc: { id: string; data: Partial<TexaUser> } | null = null;
   if (normalizedEmail) {
@@ -258,7 +245,6 @@ const saveUserToDatabase = async (firebaseUser: FirebaseUser, additionalData?: P
 
   if (preCreatedDoc?.data) {
     if (preCreatedDoc.data.subscriptionEnd) userData.subscriptionEnd = preCreatedDoc.data.subscriptionEnd;
-    if (preCreatedDoc.data.role) userData.role = preCreatedDoc.data.role;
     if (typeof preCreatedDoc.data.isActive === 'boolean') userData.isActive = preCreatedDoc.data.isActive;
     if (preCreatedDoc.data.createdAt) userData.createdAt = preCreatedDoc.data.createdAt;
   }
@@ -301,9 +287,10 @@ const saveUserToDatabase = async (firebaseUser: FirebaseUser, additionalData?: P
   } else {
     // Existing user - update last login
     await withTimeout(setDoc(userRef, {
+      email: userData.email,
+      role: userData.role,
       lastLogin: userData.lastLogin,
       ...(preCreatedDoc?.data?.subscriptionEnd ? { subscriptionEnd: preCreatedDoc.data.subscriptionEnd } : {}),
-      ...(preCreatedDoc?.data?.role ? { role: preCreatedDoc.data.role } : {}),
       ...(typeof preCreatedDoc?.data?.isActive === 'boolean' ? { isActive: preCreatedDoc.data.isActive } : {}),
       ...(preCreatedDoc?.data?.createdAt ? { createdAt: preCreatedDoc.data.createdAt } : {})
     }, { merge: true }), 8000);
@@ -449,7 +436,15 @@ export const onAuthChange = (callback: (user: TexaUser | null) => void) => {
       try {
         const texaUser = await getCurrentUserData(firebaseUser.uid);
         if (texaUser) {
-          callback(texaUser);
+          const email = normalizeEmail(texaUser.email || firebaseUser.email || '');
+          const role: UserRole = checkIfAdmin(email) ? 'ADMIN' : 'MEMBER';
+          const safeUser: TexaUser = {
+            ...texaUser,
+            email: email || texaUser.email,
+            role
+          };
+          callback(safeUser);
+          void saveUserToDatabase(firebaseUser).catch(() => { });
         } else {
           try {
             const newUser = await withTimeout(saveUserToDatabase(firebaseUser), 10000);

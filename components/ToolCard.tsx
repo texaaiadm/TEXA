@@ -7,13 +7,13 @@ import { isUrlIframeAllowed } from '../utils/iframePolicy';
 import {
   subscribeToSettings,
   SubscriptionSettings,
-  SubscriptionPackage,
   formatIDR,
   DEFAULT_SETTINGS
 } from '../services/subscriptionService';
 import { checkExtensionInstalled } from '../services/extensionService';
 import { usePopupState } from '../services/popupContext';
 import ExtensionWarningPopup from './ExtensionWarningPopup';
+import CheckoutPopup from './CheckoutPopup';
 
 interface ToolCardProps {
   tool: AITool;
@@ -74,25 +74,21 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
   const navigate = useNavigate();
   const [injecting, setInjecting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [showSubscribePopup, setShowSubscribePopup] = useState(false);
+  const [showCheckoutPopup, setShowCheckoutPopup] = useState(false);
   const [showVideoPopup, setShowVideoPopup] = useState(false);
   const [showExtensionWarning, setShowExtensionWarning] = useState(false);
   const [settings, setSettings] = useState<SubscriptionSettings>(DEFAULT_SETTINGS);
-  const [selectedPackage, setSelectedPackage] = useState<SubscriptionPackage | null>(null);
 
   // Get embed URL from video URL
   const embedUrl = parseYouTubeUrl(tool.embedVideoUrl || '');
 
   // Register popup states to hide/show header/footer
-  usePopupState(showSubscribePopup || showVideoPopup || showExtensionWarning);
+  usePopupState(showCheckoutPopup || showVideoPopup || showExtensionWarning);
 
   // Subscribe to settings
   useEffect(() => {
     const unsubscribe = subscribeToSettings((fetchedSettings) => {
       setSettings(fetchedSettings);
-      // Auto-select popular package
-      const popular = fetchedSettings.packages.find(p => p.popular && p.active);
-      if (popular) setSelectedPackage(popular);
     });
     return () => unsubscribe();
   }, []);
@@ -148,7 +144,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
 
   const handleOpenTool = async () => {
     if (!hasAccess) {
-      setShowSubscribePopup(true);
+      setShowCheckoutPopup(true);
       return;
     }
 
@@ -186,35 +182,6 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
         setTimeout(() => setStatus(null), 2000);
       }, 1000);
     }, 800);
-  };
-
-  const handleBuyPackage = () => {
-    if (!selectedPackage) return;
-
-    // Build payment URL with query params
-    let paymentUrl = settings.paymentUrl;
-
-    if (paymentUrl) {
-      const separator = paymentUrl.includes('?') ? '&' : '?';
-      paymentUrl += `${separator}package=${selectedPackage.id}&amount=${selectedPackage.discountPrice || selectedPackage.price}&duration=${selectedPackage.duration}`;
-
-      // Redirect to payment
-      window.open(paymentUrl, '_blank');
-    } else if (settings.whatsappNumber) {
-      // Fallback to WhatsApp
-      const message = encodeURIComponent(
-        `Halo, saya ingin berlangganan TEXA-Ai:\n\n` +
-        `📦 Paket: ${selectedPackage.name}\n` +
-        `💰 Harga: ${formatIDR(selectedPackage.discountPrice || selectedPackage.price)}\n` +
-        `⏰ Durasi: ${selectedPackage.duration} hari\n\n` +
-        `Mohon info cara pembayarannya. Terima kasih!`
-      );
-      window.open(`https://wa.me/${settings.whatsappNumber}?text=${message}`, '_blank');
-    } else {
-      alert('Silakan hubungi admin untuk berlangganan.');
-    }
-
-    setShowSubscribePopup(false);
   };
 
   return (
@@ -281,8 +248,27 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
 
           <div className="mt-auto pt-4 md:pt-6 border-t border-[var(--glass-border)] flex items-center justify-between">
             <div className="flex flex-col">
-              <span className="text-[8px] md:text-[10px] text-theme-muted uppercase font-black tracking-widest">Mulai</span>
-              <span className="text-sm md:text-lg font-black text-theme-primary leading-none">{formatIDR(tool.priceMonthly)}</span>
+              {(() => {
+                const price = tool.individualPrice || settings.defaultToolPrice || 15000;
+                const discount = tool.individualDiscount;
+                const duration = tool.individualDuration || settings.defaultToolDuration || 7;
+                return (
+                  <>
+                    <span className="text-[8px] md:text-[10px] text-theme-muted uppercase font-black tracking-widest">Mulai</span>
+                    <div className="flex items-baseline gap-1">
+                      {discount ? (
+                        <>
+                          <span className="text-sm md:text-lg font-black text-emerald-400 leading-none">{formatIDR(discount)}</span>
+                          <span className="text-[10px] text-slate-500 line-through">{formatIDR(price)}</span>
+                        </>
+                      ) : (
+                        <span className="text-sm md:text-lg font-black text-theme-primary leading-none">{formatIDR(price)}</span>
+                      )}
+                    </div>
+                    <span className="text-[8px] text-slate-500">/{duration} hari</span>
+                  </>
+                );
+              })()}
             </div>
 
             <button
@@ -323,133 +309,12 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
         )}
       </div>
 
-      {/* Subscription Popup */}
-      {showSubscribePopup && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="glass rounded-[32px] p-8 max-w-2xl w-full border border-white/20 shadow-2xl max-h-[90vh] overflow-y-auto relative">
-            {/* Close button */}
-            <button
-              onClick={() => setShowSubscribePopup(false)}
-              className="absolute top-4 right-4 w-10 h-10 rounded-full glass border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
-            >
-              ✕
-            </button>
-
-            {/* Header */}
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 premium-gradient rounded-3xl mx-auto mb-4 flex items-center justify-center">
-                <span className="text-4xl">💎</span>
-              </div>
-              <h2 className="text-3xl font-black text-white mb-2">
-                {settings.popupTitle || 'Berlangganan Premium'}
-              </h2>
-              <p className="text-slate-400 text-sm max-w-md mx-auto">
-                {settings.popupDescription || 'Pilih paket yang sesuai untuk akses penuh semua AI Tools premium.'}
-              </p>
-            </div>
-
-            {/* Tool Preview */}
-            <div className="glass rounded-2xl p-4 mb-6 border border-white/10 flex items-center gap-4">
-              <img src={tool.imageUrl} alt={tool.name} className="w-16 h-16 rounded-xl object-cover" />
-              <div>
-                <h3 className="font-bold text-white">{tool.name}</h3>
-                <p className="text-xs text-slate-400">{tool.category}</p>
-              </div>
-            </div>
-
-            {/* Packages */}
-            <div className="space-y-3 mb-6">
-              {settings.packages.filter(p => p.active).map((pkg) => (
-                <div
-                  key={pkg.id}
-                  onClick={() => setSelectedPackage(pkg)}
-                  className={`p-5 rounded-2xl cursor-pointer transition-all border-2 ${selectedPackage?.id === pkg.id
-                    ? 'border-indigo-500 bg-indigo-500/10'
-                    : 'border-white/10 bg-black/30 hover:border-white/30'
-                    } ${pkg.popular ? 'ring-2 ring-indigo-500/50' : ''}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedPackage?.id === pkg.id ? 'border-indigo-500 bg-indigo-500' : 'border-white/30'
-                        }`}>
-                        {selectedPackage?.id === pkg.id && (
-                          <div className="w-2 h-2 rounded-full bg-white"></div>
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white">{pkg.name}</span>
-                          {pkg.popular && (
-                            <span className="px-2 py-0.5 bg-indigo-600 rounded-full text-[9px] font-bold text-white">
-                              POPULER
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-slate-400">{pkg.duration} Hari Akses</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      {pkg.discountPrice ? (
-                        <>
-                          <span className="text-xs text-slate-500 line-through">{formatIDR(pkg.price)}</span>
-                          <p className="text-lg font-black text-emerald-400">{formatIDR(pkg.discountPrice)}</p>
-                        </>
-                      ) : (
-                        <p className="text-lg font-black text-white">{formatIDR(pkg.price)}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Features */}
-                  {pkg.features.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-white/10 flex flex-wrap gap-2">
-                      {pkg.features.map((f, i) => (
-                        <span key={i} className="text-[10px] text-emerald-400 flex items-center gap-1">
-                          ✓ {f}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* CTA Buttons */}
-            <div className="space-y-3">
-              <button
-                onClick={handleBuyPackage}
-                disabled={!selectedPackage}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black text-lg transition-all shadow-xl shadow-indigo-900/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                🛒 {settings.buttonText || 'Beli Sekarang'}
-                {selectedPackage && (
-                  <span className="text-indigo-200">
-                    - {formatIDR(selectedPackage.discountPrice || selectedPackage.price)}
-                  </span>
-                )}
-              </button>
-
-              {settings.whatsappNumber && (
-                <a
-                  href={`https://wa.me/${settings.whatsappNumber}?text=${encodeURIComponent('Halo, saya ingin bertanya tentang langganan TEXA-Ai')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 rounded-2xl glass border border-white/10 text-white font-bold text-sm flex items-center justify-center gap-2 hover:border-emerald-500/50 transition-all"
-                >
-                  💬 Tanya via WhatsApp
-                </a>
-              )}
-            </div>
-
-            {/* Security Badge */}
-            <div className="mt-6 text-center">
-              <p className="text-[10px] text-slate-500 flex items-center justify-center gap-2">
-                🔒 Pembayaran aman & terenkripsi
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Checkout Popup */}
+      <CheckoutPopup
+        tool={tool}
+        isOpen={showCheckoutPopup}
+        onClose={() => setShowCheckoutPopup(false)}
+      />
 
       {/* Video Popup Modal */}
       {showVideoPopup && embedUrl && (

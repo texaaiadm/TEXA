@@ -1,10 +1,11 @@
 // Dock Component - Floating macOS-style dock with motion animations
 import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'motion/react';
 import { Children, cloneElement, useEffect, useMemo, useRef, useState } from 'react';
+import type { FC, ReactNode } from 'react';
 import './Dock.css';
 
 interface DockItemProps {
-    children: React.ReactNode;
+    children: ReactNode;
     className?: string;
     onClick?: () => void;
     mouseX: any;
@@ -14,7 +15,7 @@ interface DockItemProps {
     baseItemSize: number;
 }
 
-function DockItem({ children, className = '', onClick, mouseX, spring, distance, magnification, baseItemSize }: DockItemProps) {
+const DockItem: FC<DockItemProps> = ({ children, className = '', onClick, mouseX, spring, distance, magnification, baseItemSize }) => {
     const ref = useRef<HTMLDivElement>(null);
     const isHovered = useMotionValue(0);
 
@@ -49,15 +50,15 @@ function DockItem({ children, className = '', onClick, mouseX, spring, distance,
             {Children.map(children, (child: any) => cloneElement(child, { isHovered }))}
         </motion.div>
     );
-}
+};
 
 interface DockLabelProps {
-    children: React.ReactNode;
+    children: ReactNode;
     className?: string;
     isHovered?: any;
 }
 
-function DockLabel({ children, className = '', isHovered }: DockLabelProps) {
+const DockLabel: FC<DockLabelProps> = ({ children, className = '', isHovered }) => {
     const [isVisible, setIsVisible] = useState(false);
 
     useEffect(() => {
@@ -85,11 +86,11 @@ function DockLabel({ children, className = '', isHovered }: DockLabelProps) {
             )}
         </AnimatePresence>
     );
-}
+};
 
-function DockIcon({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+const DockIcon: FC<{ children: ReactNode; className?: string }> = ({ children, className = '' }) => {
     return <div className={`dock-icon ${className}`}>{children}</div>;
-}
+};
 
 export interface DockItemData {
     icon: string;

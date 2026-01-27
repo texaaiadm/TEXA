@@ -1,6 +1,7 @@
 // Footer Service - Manage customizable footer settings
-import { ref as dbRef, set, get, onValue } from 'firebase/database';
-import { rtdb, COLLECTIONS } from './firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore/lite';
+import { get, ref as rtdbRef, set as rtdbSet } from 'firebase/database';
+import { db, rtdb, COLLECTIONS } from './firebase';
 
 export interface SocialMediaLink {
     platform: string;
@@ -38,7 +39,7 @@ export interface FooterSettings {
 }
 
 // Default footer settings
-const DEFAULT_FOOTER_SETTINGS: FooterSettings = {
+export const DEFAULT_FOOTER_SETTINGS: FooterSettings = {
     id: 'main',
     companyName: 'TEXA-Ai',
     companyTagline: 'Premium AI Tools Marketplace & Digital Creator',
@@ -68,96 +69,165 @@ const DEFAULT_FOOTER_SETTINGS: FooterSettings = {
     updatedAt: new Date().toISOString()
 };
 
+const FOOTER_COLLECTION = COLLECTIONS.FOOTER_SETTINGS;
+const FOOTER_DOC = 'main';
+const LOCAL_STORAGE_KEY = 'texa_footer_settings';
+
+const withTimeout = async <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+                timeoutId = setTimeout(() => reject(new Error('Timeout')), ms);
+            })
+        ]);
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+    }
+};
+
+const normalizeFooterSettings = (data: Partial<FooterSettings> | null | undefined): FooterSettings => {
+    const merged = { ...DEFAULT_FOOTER_SETTINGS, ...(data || {}) } as FooterSettings;
+    return {
+        ...merged,
+        id: merged.id || FOOTER_DOC,
+        updatedAt: merged.updatedAt || new Date().toISOString()
+    };
+};
+
+const loadFromLocalStorage = (): FooterSettings | null => {
+    try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Partial<FooterSettings>;
+        return normalizeFooterSettings(parsed);
+    } catch {
+        return null;
+    }
+};
+
+const saveToLocalStorage = (settings: FooterSettings): boolean => {
+    try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(settings));
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 // Seed default footer settings
 export async function seedDefaultFooterSettings(): Promise<void> {
-    const footerRef = dbRef(rtdb, `${COLLECTIONS.FOOTER_SETTINGS}/main`);
-    const snapshot = await get(footerRef);
+    const docRef = doc(db, FOOTER_COLLECTION, FOOTER_DOC);
+    const snapshot = await withTimeout(getDoc(docRef), 6000);
+    if (snapshot.exists()) return;
 
-    if (!snapshot.exists()) {
-        await set(footerRef, DEFAULT_FOOTER_SETTINGS);
-        console.log('✅ Default footer settings seeded');
-    }
+    const payload = normalizeFooterSettings({ ...DEFAULT_FOOTER_SETTINGS, id: FOOTER_DOC });
+    saveToLocalStorage(payload);
+    await withTimeout(setDoc(docRef, payload), 6000);
 }
 
 // Get footer settings
 export async function getFooterSettings(): Promise<FooterSettings | null> {
-    try {
-        const footerRef = dbRef(rtdb, `${COLLECTIONS.FOOTER_SETTINGS}/main`);
-        const snapshot = await get(footerRef);
+    const docRef = doc(db, FOOTER_COLLECTION, FOOTER_DOC);
 
-        if (snapshot.exists()) {
-            return snapshot.val() as FooterSettings;
+    try {
+        const snapshot = await withTimeout(getDoc(docRef), 6000);
+
+        if (!snapshot.exists()) {
+            await seedDefaultFooterSettings();
+            return normalizeFooterSettings(DEFAULT_FOOTER_SETTINGS);
         }
 
-        // Seed if not exists
-        await seedDefaultFooterSettings();
-        return DEFAULT_FOOTER_SETTINGS;
+        const settings = normalizeFooterSettings({ ...(snapshot.data() as any), id: snapshot.id });
+        saveToLocalStorage(settings);
+        return settings;
     } catch (error) {
         console.error('Error getting footer settings:', error);
-        return null;
     }
+
+    try {
+        const rtdbPath = `${FOOTER_COLLECTION}/${FOOTER_DOC}`;
+        const snap = await withTimeout(get(rtdbRef(rtdb, rtdbPath)), 4000);
+        if (snap.exists()) {
+            const data = normalizeFooterSettings(snap.val() as Partial<FooterSettings>);
+            saveToLocalStorage(data);
+            void withTimeout(setDoc(docRef, data), 6000).catch(() => { });
+            return data;
+        }
+    } catch (error) {
+        console.error('Error getting footer settings from RTDB:', error);
+    }
+
+    const local = loadFromLocalStorage();
+    if (local) return local;
+
+    return normalizeFooterSettings(DEFAULT_FOOTER_SETTINGS);
 }
 
 // Subscribe to footer settings changes
 export function subscribeToFooterSettings(
     callback: (settings: FooterSettings | null) => void
 ): () => void {
-    const footerRef = dbRef(rtdb, `${COLLECTIONS.FOOTER_SETTINGS}/main`);
+    let stopped = false;
+    let inFlight = false;
 
-    // Initial fetch
-    get(footerRef).then(snapshot => {
-        if (!snapshot.exists()) {
-            void seedDefaultFooterSettings();
-            callback(DEFAULT_FOOTER_SETTINGS);
-        } else {
-            callback(snapshot.val() as FooterSettings);
-        }
-    }).catch(error => {
-        console.error('Error in initial footer fetch:', error);
-        callback(null);
-    });
-
-    // Real-time updates every 10 seconds
-    const intervalId = setInterval(async () => {
+    const fetchOnce = async () => {
+        if (stopped || inFlight) return;
+        inFlight = true;
         try {
-            const snapshot = await get(footerRef);
-            if (snapshot.exists()) {
-                callback(snapshot.val() as FooterSettings);
-            }
-        } catch (error) {
-            console.error('Error polling footer settings:', error);
+            const settings = await getFooterSettings();
+            if (stopped) return;
+            callback(settings);
+        } catch {
+            if (stopped) return;
+            callback(normalizeFooterSettings(DEFAULT_FOOTER_SETTINGS));
+        } finally {
+            inFlight = false;
         }
-    }, 10000);
+    };
 
-    // Return cleanup function
-    return () => clearInterval(intervalId);
+    void fetchOnce();
+    const intervalId = setInterval(fetchOnce, 10000);
+
+    return () => {
+        stopped = true;
+        clearInterval(intervalId);
+    };
 }
 
 // Update footer settings
 export async function updateFooterSettings(
     updates: Partial<FooterSettings>
 ): Promise<boolean> {
+    const currentSettings = (await getFooterSettings()) || DEFAULT_FOOTER_SETTINGS;
+    const updatedSettings: FooterSettings = normalizeFooterSettings({
+        ...currentSettings,
+        ...updates,
+        id: FOOTER_DOC,
+        updatedAt: new Date().toISOString()
+    });
+
+    let wrote = false;
+    wrote = saveToLocalStorage(updatedSettings) || wrote;
+
     try {
-        const footerRef = dbRef(rtdb, `${COLLECTIONS.FOOTER_SETTINGS}/main`);
-        const snapshot = await get(footerRef);
-
-        if (!snapshot.exists()) {
-            await seedDefaultFooterSettings();
-        }
-
-        const currentSettings = snapshot.exists() ? snapshot.val() : DEFAULT_FOOTER_SETTINGS;
-        const updatedSettings = {
-            ...currentSettings,
-            ...updates,
-            updatedAt: new Date().toISOString()
-        };
-
-        await set(footerRef, updatedSettings);
-        return true;
+        const docRef = doc(db, FOOTER_COLLECTION, FOOTER_DOC);
+        await withTimeout(setDoc(docRef, updatedSettings), 6000);
+        wrote = true;
     } catch (error) {
-        console.error('Error updating footer settings:', error);
-        return false;
+        console.error('Error updating footer settings (Firestore):', error);
     }
+
+    try {
+        const rtdbPath = `${FOOTER_COLLECTION}/${FOOTER_DOC}`;
+        await withTimeout(rtdbSet(rtdbRef(rtdb, rtdbPath), updatedSettings), 4000);
+        wrote = true;
+    } catch (error) {
+        console.error('Error updating footer settings (RTDB):', error);
+    }
+
+    return wrote;
 }
 
 // Update social media link

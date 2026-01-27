@@ -51,7 +51,11 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
         // New fields for extension integration
         embedVideoUrl: '',
         cookiesData: '',
-        apiUrl: ''
+        apiUrl: '',
+        // Per-tool individual purchase settings
+        individualPrice: 0,
+        individualDuration: 7,
+        individualDiscount: 0
     });
 
     // Toggle for showing advanced extension fields
@@ -95,7 +99,10 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
             priceMonthly: 0,
             embedVideoUrl: '',
             cookiesData: '',
-            apiUrl: ''
+            apiUrl: '',
+            individualPrice: 0,
+            individualDuration: 7,
+            individualDiscount: 0
         });
         setSelectedItem(null);
         setShowAdvanced(false);
@@ -120,7 +127,10 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                     priceMonthly: item.priceMonthly,
                     embedVideoUrl: item.embedVideoUrl || '',
                     cookiesData: item.cookiesData || '',
-                    apiUrl: item.apiUrl || ''
+                    apiUrl: item.apiUrl || '',
+                    individualPrice: item.individualPrice || 0,
+                    individualDuration: item.individualDuration || 7,
+                    individualDiscount: item.individualDiscount || 0
                 });
                 // Show advanced if any extension fields have data
                 if (item.embedVideoUrl || item.cookiesData || item.apiUrl) {
@@ -653,6 +663,54 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                                             </button>
                                         </div>
                                     </div>
+
+                                    {/* Per-Tool Individual Pricing */}
+                                    <div className="border-t border-white/10 pt-4 mt-4">
+                                        <h4 className="text-sm font-bold text-emerald-400 mb-4 flex items-center gap-2">
+                                            🛒 Harga Satuan (Eceran)
+                                        </h4>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Harga Satuan</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={formData.individualPrice}
+                                                    onChange={(e) => setFormData({ ...formData, individualPrice: parseInt(e.target.value) || 0 })}
+                                                    placeholder="15000"
+                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Durasi (Hari)</label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    value={formData.individualDuration}
+                                                    onChange={(e) => setFormData({ ...formData, individualDuration: parseInt(e.target.value) || 7 })}
+                                                    placeholder="7"
+                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Harga Diskon</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={formData.individualDiscount}
+                                                    onChange={(e) => setFormData({ ...formData, individualDiscount: parseInt(e.target.value) || 0 })}
+                                                    placeholder="0"
+                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
+                                                />
+                                            </div>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mt-2">
+                                            {formData.individualPrice > 0
+                                                ? `Preview: ${formatPrice(formData.individualDiscount || formData.individualPrice)} / ${formData.individualDuration} hari`
+                                                : 'Kosongkan untuk menggunakan harga default dari Pengaturan Subscription'}
+                                        </p>
+                                    </div>
+
 
                                     {/* Advanced Extension Fields Toggle */}
                                     <div className="border-t border-white/10 pt-4 mt-4">

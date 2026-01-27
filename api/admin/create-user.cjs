@@ -3,10 +3,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const ADMIN_EMAILS = new Set([
-  'teknoaiglobal.adm@gmail.com',
-  'teknoaiglobal@gmail.com',
-  'teknoaurora@gmail.com',
-  'admin@texa.id'
+  'teknoaiglobal.adm@gmail.com'
 ]);
 
 const getAdminCredential = () => {
@@ -72,12 +69,7 @@ const requireAdmin = async (req) => {
 
   const email = decoded && decoded.email ? String(decoded.email).toLowerCase() : '';
   if (email && ADMIN_EMAILS.has(email)) return { ok: true, uid: decoded.uid };
-
-  const snap = await admin.firestore().doc(`texa_users/${decoded.uid}`).get();
-  const role = snap.exists ? snap.data().role : null;
-  if (role !== 'ADMIN') return { ok: false, status: 403, message: 'Forbidden' };
-
-  return { ok: true, uid: decoded.uid };
+  return { ok: false, status: 403, message: 'Forbidden' };
 };
 
 module.exports = async (req, res) => {
@@ -101,7 +93,7 @@ module.exports = async (req, res) => {
   const password = typeof body.password === 'string' ? body.password : '';
   const hasPassword = password.length > 0;
   const name = String(body.name || '').trim();
-  const role = body.role === 'ADMIN' ? 'ADMIN' : 'MEMBER';
+  const role = body.role === 'ADMIN' && ADMIN_EMAILS.has(email) ? 'ADMIN' : 'MEMBER';
   const isActive = body.isActive !== false;
   const sub = computeSubscriptionEnd(body.subscriptionDays);
 

@@ -5,6 +5,12 @@ import { TexaUser } from '../services/firebase';
 import ToolCard from './ToolCard';
 import CompactToolCard from './CompactToolCard';
 import { subscribeToCatalog, CatalogItem } from '../services/catalogService';
+import {
+  DashboardContentSettings,
+  DEFAULT_DASHBOARD_CONTENT,
+  subscribeToDashboardContent
+} from '../services/dashboardContentService';
+
 
 // Fallback mock tools (used when Firestore is empty)
 const MOCK_TOOLS: AITool[] = [
@@ -80,23 +86,28 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
   const [filter, setFilter] = useState('Semua');
   const [tools, setTools] = useState<AITool[]>(MOCK_TOOLS);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>('compact'); // Default to compact view
+  const [viewMode, setViewMode] = useState<ViewMode>('compact');
+  const [content, setContent] = useState<DashboardContentSettings>(DEFAULT_DASHBOARD_CONTENT);
+
+  // Subscribe to dashboard content settings
+  useEffect(() => {
+    const unsubscribe = subscribeToDashboardContent((settings) => {
+      setContent(settings);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Subscribe to catalog from Firestore
   useEffect(() => {
     const unsubscribe = subscribeToCatalog((items: CatalogItem[]) => {
-      // Only show active items
       const activeItems = items.filter(item => item.status === 'active');
-
       if (activeItems.length > 0) {
         setTools(activeItems);
       } else {
-        // Fallback to mock if no items in Firestore
         setTools(MOCK_TOOLS);
       }
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -116,13 +127,27 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       {/* Header with View Toggle */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-8 gap-4 md:gap-6 px-2">
         <div className="max-w-xl">
-          <h2 className="text-xl md:text-3xl font-black mb-1 md:mb-2 tracking-tight text-theme-primary flex items-center gap-2">
-            Katalog AI Premium
-            <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-full">
-              {filteredTools.length} Tools
+          <h2
+            className="text-xl md:text-3xl font-black mb-1 md:mb-2 tracking-tight text-theme-primary flex items-center gap-2"
+            style={content.catalogTitleColor ? { color: content.catalogTitleColor } : undefined}
+          >
+            {content.catalogTitle}
+            <span
+              className="px-2 py-0.5 bg-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-full"
+              style={{
+                ...(content.catalogBadgeBgColor ? { backgroundColor: content.catalogBadgeBgColor } : {}),
+                ...(content.catalogBadgeTextColor ? { color: content.catalogBadgeTextColor } : {})
+              }}
+            >
+              {content.catalogBadgeText.replace('{count}', String(filteredTools.length))}
             </span>
           </h2>
-          <p className="text-xs md:text-base text-theme-secondary font-medium">Aktifkan tool favoritmu dalam hitungan detik.</p>
+          <p
+            className="text-xs md:text-base text-theme-secondary font-medium"
+            style={content.catalogSubtitleColor ? { color: content.catalogSubtitleColor } : undefined}
+          >
+            {content.catalogSubtitle}
+          </p>
         </div>
 
         <div className="flex items-center gap-3 w-full lg:w-auto">
@@ -131,8 +156,8 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
             <button
               onClick={() => setViewMode('compact')}
               className={`p-2 rounded-lg transition-all ${viewMode === 'compact'
-                  ? 'bg-indigo-500 text-white shadow-lg'
-                  : 'text-slate-400 hover:text-white'
+                ? 'bg-indigo-500 text-white shadow-lg'
+                : 'text-slate-400 hover:text-white'
                 }`}
               title="Compact View"
             >
@@ -143,8 +168,8 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
             <button
               onClick={() => setViewMode('grid')}
               className={`p-2 rounded-lg transition-all ${viewMode === 'grid'
-                  ? 'bg-indigo-500 text-white shadow-lg'
-                  : 'text-slate-400 hover:text-white'
+                ? 'bg-indigo-500 text-white shadow-lg'
+                : 'text-slate-400 hover:text-white'
                 }`}
               title="Grid View"
             >
@@ -201,14 +226,14 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       {/* Empty State */}
       {filteredTools.length === 0 && !loading && (
         <div className="text-center py-16">
-          <div className="text-6xl mb-4">🔍</div>
-          <h3 className="text-xl font-bold text-theme-primary mb-2">Tidak Ada Tools</h3>
-          <p className="text-theme-secondary text-sm">Coba pilih kategori lain atau reset filter.</p>
+          <div className="text-6xl mb-4">{content.emptyStateEmoji}</div>
+          <h3 className="text-xl font-bold text-theme-primary mb-2">{content.emptyStateTitle}</h3>
+          <p className="text-theme-secondary text-sm">{content.emptyStateSubtitle}</p>
           <button
             onClick={() => setFilter('Semua')}
             className="mt-4 px-6 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-bold text-sm transition-all"
           >
-            Reset Filter
+            {content.emptyStateButtonText}
           </button>
         </div>
       )}

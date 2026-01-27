@@ -17,6 +17,10 @@ export interface AITool {
   embedVideoUrl?: string;      // URL untuk embedded video (YouTube, dll)
   cookiesData?: string;        // JSON string cookies untuk inject oleh extension
   apiUrl?: string;             // API URL untuk fetch data oleh extension
+  // Per-tool individual purchase settings
+  individualPrice?: number;       // Harga satuan (Rp)
+  individualDuration?: number;    // Durasi akses satuan (hari), default 7
+  individualDiscount?: number;    // Harga diskon satuan (optional)
 }
 
 export interface AuthState {

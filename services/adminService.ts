@@ -275,19 +275,19 @@ export const testDatabasePermissions = async (): Promise<{ firestore: string; rt
             const testRef = ref(rtdb, testPath);
 
             try {
-                // Try WRITE test (shorter timeout for faster failure)
+                // Try WRITE test
                 await withTimeout(
                     set(testRef, {
                         test: true,
                         timestamp: new Date().toISOString(),
                         user: auth.currentUser?.email
                     }),
-                    3000, // 3 second timeout
+                    8000,
                     'Write timeout'
                 );
 
                 // Cleanup
-                await withTimeout(remove(testRef), 2000, 'Cleanup timeout').catch(() => { });
+                await withTimeout(remove(testRef), 4000, 'Cleanup timeout').catch(() => { });
 
                 results.rtdb = 'OK';
             } catch (writeError: any) {
@@ -298,7 +298,7 @@ export const testDatabasePermissions = async (): Promise<{ firestore: string; rt
                     const readRef = ref(rtdb, '/');
                     await withTimeout(
                         get(readRef),
-                        3000,
+                        8000,
                         'Read timeout'
                     );
 
@@ -307,7 +307,7 @@ export const testDatabasePermissions = async (): Promise<{ firestore: string; rt
                 } catch (readError: any) {
                     // Both read and write failed
                     if (writeError.message.includes('timeout') || writeError.message.includes('Timeout')) {
-                        results.rtdb = 'FAILED: Connection timeout - RTDB belum aktif atau tidak tersedia';
+                        results.rtdb = 'FAILED: Connection timeout - RTDB belum aktif / URL salah / diblokir jaringan';
                     } else if (writeError.message.includes('permission') || writeError.code === 'PERMISSION_DENIED') {
                         results.rtdb = 'FAILED: Permission denied - Update RTDB Rules di Firebase Console';
                     } else {
@@ -324,7 +324,7 @@ export const testDatabasePermissions = async (): Promise<{ firestore: string; rt
         if (code === 'PERMISSION_DENIED' || message.includes('permission')) {
             results.rtdb = 'FAILED: Permission denied - Update RTDB Rules';
         } else if (message.includes('timeout') || message.includes('Timeout')) {
-            results.rtdb = 'FAILED: Timeout - RTDB belum dibuat atau tidak aktif';
+            results.rtdb = 'FAILED: Timeout - RTDB belum dibuat / databaseURL salah / diblokir jaringan';
         } else {
             results.rtdb = code ? `FAILED (${code}): ${message}` : `FAILED: ${message}`;
         }

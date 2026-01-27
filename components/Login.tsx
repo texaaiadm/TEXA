@@ -22,6 +22,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [authMethod, setAuthMethod] = useState<'email' | 'google' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const isCoarsePointer = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+  const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const showPrism = !(isCoarsePointer || prefersReducedMotion);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,17 +78,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
       {/* Dynamic Background Effect */}
       <div className="absolute inset-0 z-0">
-        <Prism
-          animationType="rotate"
-          timeScale={0.5}
-          height={3.5}
-          baseWidth={5.5}
-          scale={3.6}
-          hueShift={0}
-          colorFrequency={1}
-          noise={0.5}
-          glow={1}
-        />
+        {showPrism ? (
+          <Prism
+            animationType="rotate"
+            timeScale={0.5}
+            height={3.5}
+            baseWidth={5.5}
+            scale={3.6}
+            hueShift={0}
+            colorFrequency={1}
+            noise={0.5}
+            glow={1}
+          />
+        ) : (
+          <div className="absolute inset-0 premium-gradient opacity-30" />
+        )}
         {/* Dark overlay to ensure contrast */}
         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
       </div>

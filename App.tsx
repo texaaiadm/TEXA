@@ -8,14 +8,17 @@ import UserProfile from './components/UserProfile';
 import Login from './components/Login';
 import Hero from './components/Hero';
 import SplashCursor from './components/SplashCursor';
+import ColorBends from './components/ColorBends';
 import ToolIframePage from './components/ToolIframePage';
 import Footer from './components/Footer';
+import PaymentPage from './pages/PaymentPage';
 import { onAuthChange, logOut, TexaUser } from './services/firebase';
 import { PopupProvider, usePopup } from './services/popupContext';
 import { ThemeProvider } from './services/ThemeContext';
 import Dock, { DockItemData } from './components/Dock';
 import { subscribeToDockItems, DockItem } from './services/dockService';
 import toketHtml from './tambahan/toket.txt?raw';
+import { applyThemeSettings, DEFAULT_THEME_SETTINGS, subscribeToThemeSettings, ThemeSettings } from './services/themeService';
 
 // Inner component that has access to useLocation
 const AppContent: React.FC<{
@@ -26,6 +29,12 @@ const AppContent: React.FC<{
   const location = useLocation();
   const { isAnyPopupOpen } = usePopup();
   const [dockItems, setDockItems] = React.useState<DockItemData[]>([]);
+  const [themeSettings, setThemeSettings] = useState<ThemeSettings>(DEFAULT_THEME_SETTINGS);
+  const [previewThemeSettings, setPreviewThemeSettings] = useState<ThemeSettings | null>(null);
+  const [scrollY, setScrollY] = useState(0);
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const [smallScreen, setSmallScreen] = useState(false);
 
   // Subscribe to dock items from Firestore
   React.useEffect(() => {
@@ -46,6 +55,53 @@ const AppContent: React.FC<{
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToThemeSettings((settings) => {
+      setThemeSettings(settings);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const e = event as CustomEvent;
+      const detail = e?.detail;
+      if (detail && typeof detail === 'object') setPreviewThemeSettings(detail as ThemeSettings);
+      else setPreviewThemeSettings(null);
+    };
+    window.addEventListener('texa-theme-preview', handler as EventListener);
+    return () => window.removeEventListener('texa-theme-preview', handler as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const coarseMq = window.matchMedia?.('(pointer: coarse)');
+    const reduceMq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+
+    const sync = () => {
+      setCoarsePointer(!!coarseMq?.matches);
+      setReducedMotion(!!reduceMq?.matches);
+      setSmallScreen(window.innerWidth < 768);
+    };
+
+    sync();
+
+    const onResize = () => sync();
+    window.addEventListener('resize', onResize, { passive: true });
+
+    const coarseHandler = () => sync();
+    const reduceHandler = () => sync();
+    coarseMq?.addEventListener?.('change', coarseHandler);
+    reduceMq?.addEventListener?.('change', reduceHandler);
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      coarseMq?.removeEventListener?.('change', coarseHandler);
+      reduceMq?.removeEventListener?.('change', reduceHandler);
+    };
+  }, []);
+
+  const disableHeavyEffects = coarsePointer || reducedMotion || smallScreen;
+
   // Check if current route should hide header/footer
   const isAdminPage = location.pathname === '/admin';
   const isLoginPage = location.pathname === '/login';
@@ -53,11 +109,92 @@ const AppContent: React.FC<{
   const isToolIframePage = location.pathname.startsWith('/tool/');
   const hideHeaderFooter = isAdminPage || isLoginPage || isToketPage || isToolIframePage;
 
+  useEffect(() => {
+    if (!isAdminPage && previewThemeSettings) setPreviewThemeSettings(null);
+  }, [isAdminPage, previewThemeSettings]);
+
+  const activeThemeSettings = isAdminPage && previewThemeSettings ? previewThemeSettings : themeSettings;
+
+  useEffect(() => {
+    applyThemeSettings(activeThemeSettings);
+  }, [activeThemeSettings]);
+
+  useEffect(() => {
+    const parallaxSpeed = activeThemeSettings.parallaxSpeed ?? 0;
+    if (disableHeavyEffects || !parallaxSpeed) {
+      setScrollY(0);
+      return;
+    }
+
+    let ticking = false;
+    const handleScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        setScrollY(window.scrollY);
+        ticking = false;
+      });
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [disableHeavyEffects, activeThemeSettings.parallaxSpeed]);
+
+  const accentHex = React.useMemo(() => {
+    const parts = (activeThemeSettings.accentColor || '')
+      .split(',')
+      .map((value) => Number.parseInt(value.trim(), 10))
+      .filter((value) => Number.isFinite(value));
+    if (parts.length < 3) return '#7c3aed';
+    const [r, g, b] = parts;
+    const toHex = (n: number) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }, [activeThemeSettings.accentColor]);
+
+  const colorBendsColors = React.useMemo(() => {
+    const raw = Array.isArray(activeThemeSettings.cbColors) ? activeThemeSettings.cbColors : [];
+    return raw.length ? raw : [accentHex, '#FF9FFC', '#7cff67'];
+  }, [accentHex, activeThemeSettings.cbColors]);
+
   // Hide header/footer when any popup is open
   const shouldHideNavigation = hideHeaderFooter || isAnyPopupOpen;
 
+  const renderColorBends = activeThemeSettings.useColorBends && !disableHeavyEffects;
+  const effectiveBgBlur = disableHeavyEffects ? Math.min(activeThemeSettings.bgBlur ?? 0, 8) : (activeThemeSettings.bgBlur ?? 0);
+  const effectiveParallax = disableHeavyEffects ? 0 : (activeThemeSettings.parallaxSpeed ?? 0);
+
   return (
     <div className="min-h-screen flex flex-col relative">
+      <div className="wallpaper-container">
+        <div
+          className="w-full h-full"
+          style={{
+            transform: `translate3d(0, ${scrollY * effectiveParallax}px, 0)`,
+            filter: `blur(${effectiveBgBlur}px)`,
+            transition: 'filter 0.5s ease'
+          }}
+        >
+          {renderColorBends ? (
+            <ColorBends
+              rotation={activeThemeSettings.cbRotation}
+              speed={activeThemeSettings.cbSpeed}
+              colors={colorBendsColors}
+              transparent={activeThemeSettings.cbTransparent}
+              autoRotate={activeThemeSettings.cbAutoRotate}
+              scale={activeThemeSettings.cbScale}
+              frequency={activeThemeSettings.cbFreq}
+              warpStrength={activeThemeSettings.cbWarp}
+              mouseInfluence={activeThemeSettings.cbMouseInfluence}
+              parallax={activeThemeSettings.cbParallax}
+              noise={activeThemeSettings.cbNoise}
+            />
+          ) : (
+            <div className="w-full h-full bg-cover bg-center" style={{ backgroundImage: `url('${activeThemeSettings.bgUrl}')` }} />
+          )}
+        </div>
+      </div>
+      <div className="fixed inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none z-[1]" />
       <SplashCursor />
 
       {/* Conditionally render Navbar - hidden on admin/login pages and when popup is open */}
@@ -84,7 +221,7 @@ const AppContent: React.FC<{
           } />
 
           <Route path="/profile" element={
-            user ? <UserProfile user={user} /> : <Navigate to="/login" />
+            user ? <UserProfile user={user} onLogout={onLogout} /> : <Navigate to="/login" />
           } />
 
           <Route path="/admin" element={
@@ -115,6 +252,8 @@ const AppContent: React.FC<{
           } />
 
           <Route path="/tool/:toolId" element={<ToolIframePage user={user} />} />
+
+          <Route path="/payment" element={<PaymentPage />} />
         </Routes>
       </main>
 

@@ -1,12 +1,14 @@
 
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { TexaUser } from '../services/firebase';
 
 interface UserProfileProps {
   user: TexaUser;
+  onLogout: () => void;
 }
 
-const UserProfile: React.FC<UserProfileProps> = ({ user }) => {
+const UserProfile: React.FC<UserProfileProps> = ({ user, onLogout }) => {
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Tidak ada';
     return new Date(dateString).toLocaleDateString('id-ID', {
@@ -17,26 +19,26 @@ const UserProfile: React.FC<UserProfileProps> = ({ user }) => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-12">
-      <div className="glass rounded-[40px] p-10 border border-white/10 mb-10 overflow-hidden relative shadow-2xl">
+    <div className="max-w-5xl mx-auto py-8 md:py-12">
+      <div className="glass rounded-[28px] sm:rounded-[34px] md:rounded-[40px] p-5 sm:p-7 md:p-10 border border-white/10 mb-6 md:mb-10 overflow-hidden relative shadow-2xl">
         <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-600/10 blur-[100px] -mr-40 -mt-40"></div>
 
-        <div className="flex flex-col md:flex-row items-center gap-10 relative z-10">
+        <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10 relative z-10">
           {user.photoURL ? (
             <img
               src={user.photoURL}
               alt={user.name}
-              className="w-32 h-32 rounded-3xl object-cover shadow-2xl rotate-3 border-4 border-indigo-500/30"
+              className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-3xl object-cover shadow-2xl rotate-3 border-4 border-indigo-500/30"
             />
           ) : (
-            <div className="w-32 h-32 rounded-3xl premium-gradient flex items-center justify-center text-5xl font-black shadow-2xl rotate-3">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-3xl premium-gradient flex items-center justify-center text-4xl sm:text-5xl font-black shadow-2xl rotate-3">
               {user.name[0].toUpperCase()}
             </div>
           )}
 
           <div className="text-center md:text-left">
-            <h2 className="text-4xl font-black mb-2 tracking-tight">{user.name}</h2>
-            <p className="text-slate-400 font-medium mb-6">{user.email}</p>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-black mb-2 tracking-tight">{user.name}</h2>
+            <p className="text-slate-400 font-medium mb-5 md:mb-6 break-all">{user.email}</p>
             <div className="flex flex-wrap justify-center md:justify-start gap-4">
               <span className={`px-5 py-2 border rounded-full text-xs font-black uppercase tracking-widest ${user.role === 'ADMIN'
                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
@@ -50,14 +52,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ user }) => {
                 }`}>
                 {user.subscriptionEnd ? 'Status: Aktif' : 'Status: Free'}
               </span>
+              {user.role === 'ADMIN' && (
+                <Link
+                  to="/admin"
+                  className="px-5 py-2 rounded-full text-xs font-black uppercase tracking-widest bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+                >
+                  Admin Dashboard
+                </Link>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-        <div className="glass rounded-[32px] p-10 border border-white/10 shadow-xl">
-          <h3 className="text-2xl font-black mb-8 tracking-tight">Status Berlangganan</h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
+        <div className="glass rounded-[28px] sm:rounded-[32px] p-5 sm:p-7 md:p-10 border border-white/10 shadow-xl">
+          <h3 className="text-xl sm:text-2xl font-black mb-6 md:mb-8 tracking-tight">Status Berlangganan</h3>
           {user.subscriptionEnd ? (
             <div className="space-y-6">
               <div className="p-6 bg-slate-900/50 rounded-2xl border border-white/5">
@@ -82,8 +92,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user }) => {
           )}
         </div>
 
-        <div className="glass rounded-[32px] p-10 border border-white/10 shadow-xl">
-          <h3 className="text-2xl font-black mb-8 tracking-tight">Informasi Akun</h3>
+        <div className="glass rounded-[28px] sm:rounded-[32px] p-5 sm:p-7 md:p-10 border border-white/10 shadow-xl">
+          <h3 className="text-xl sm:text-2xl font-black mb-6 md:mb-8 tracking-tight">Informasi Akun</h3>
           <div className="space-y-4">
             <div className="p-5 bg-slate-900/50 border border-white/5 rounded-2xl">
               <p className="text-xs text-slate-500 font-black uppercase tracking-widest mb-2">User ID</p>
@@ -105,6 +115,16 @@ const UserProfile: React.FC<UserProfileProps> = ({ user }) => {
               <span className="text-sm font-black text-white">Akun Terverifikasi</span>
             </div>
             <span className="text-[10px] font-black text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded">Firebase Auth</span>
+          </div>
+
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={onLogout}
+              className="w-full py-4 rounded-2xl border border-red-500/20 text-red-400 text-sm font-black hover:bg-red-500/10 transition-all uppercase tracking-widest"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </div>

@@ -40,9 +40,27 @@ export interface SubscriptionSettings {
     enableManualPayment?: boolean;    // Aktifkan pembayaran manual/transfer
     enableQRIS?: boolean;             // Aktifkan QRIS
 
+    // Per-Tool (Eceran) Purchase Settings
+    enablePerToolPurchase?: boolean;  // Global toggle untuk jual satuan
+    perToolDurationTiers?: PerToolDurationTier[]; // Pilihan durasi (7 hari, 2 minggu, 1 bulan)
+    perToolPaymentUrl?: string;       // Payment URL khusus eceran
+    perToolPopupTitle?: string;       // Judul popup beli satuan
+    perToolPopupDescription?: string; // Deskripsi popup satuan
+
     // Timestamps
     updatedAt?: string;
     updatedBy?: string;
+}
+
+// Per-Tool Duration Tier Interface
+export interface PerToolDurationTier {
+    id: string;
+    name: string;           // "7 Hari", "2 Minggu", "1 Bulan"
+    duration: number;       // Durasi dalam hari
+    price: number;          // Harga dalam IDR
+    discountPrice?: number; // Harga diskon (optional)
+    popular?: boolean;      // Tandai sebagai populer
+    active: boolean;        // Status aktif/nonaktif
 }
 
 // Subscription Package Interface
@@ -96,7 +114,37 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
     buttonText: 'Beli Sekarang',
     enableAutoActivation: false,
     enableManualPayment: true,
-    enableQRIS: false
+    enableQRIS: false,
+    // Per-Tool defaults
+    enablePerToolPurchase: true,
+    perToolDurationTiers: [
+        {
+            id: 'tier-7',
+            name: '7 Hari',
+            duration: 7,
+            price: 15000,
+            active: true
+        },
+        {
+            id: 'tier-14',
+            name: '2 Minggu',
+            duration: 14,
+            price: 25000,
+            discountPrice: 22000,
+            popular: true,
+            active: true
+        },
+        {
+            id: 'tier-30',
+            name: '1 Bulan',
+            duration: 30,
+            price: 45000,
+            discountPrice: 39000,
+            active: true
+        }
+    ],
+    perToolPopupTitle: 'Beli Akses Tool',
+    perToolPopupDescription: 'Pilih durasi akses untuk tool ini'
 };
 
 // Get subscription settings

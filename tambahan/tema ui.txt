@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEXA PRO - Interface Engine</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Three.js (Preload) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <style>
+        /* Base resets and custom fonts loading handled in component */
+        body { margin: 0; padding: 0; overflow-x: hidden; background-color: #000; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Animation Keyframes for Admin Panel */
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .animate-in { animation-fill-mode: forwards; }
+        .slide-in-from-right { animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .fade-in { animation: fadeIn 0.2s ease-out; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- ICONS (Replaced Lucide Imports with SVGs for Single File) ---
+        const IconBase = ({ size = 24, className = "", children }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+
+        const ArrowRight = (p) => <IconBase {...p}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></IconBase>;
+        const Check = (p) => <IconBase {...p}><polyline points="20 6 9 17 4 12"/></IconBase>;
+        const ChevronDown = (p) => <IconBase {...p}><polyline points="6 9 12 15 18 9"/></IconBase>;
+        const Grid2X2 = (p) => <IconBase {...p}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></IconBase>;
+        const Lock = (p) => <IconBase {...p}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></IconBase>;
+        const Mail = (p) => <IconBase {...p}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></IconBase>;
+        const MapPin = (p) => <IconBase {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></IconBase>;
+        const Menu = (p) => <IconBase {...p}><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></IconBase>;
+        const MessageSquare = (p) => <IconBase {...p}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></IconBase>;
+        const Moon = (p) => <IconBase {...p}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></IconBase>;
+        const Phone = (p) => <IconBase {...p}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></IconBase>;
+        const Search = (p) => <IconBase {...p}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></IconBase>;
+        const Shield = (p) => <IconBase {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></IconBase>;
+        const ShoppingCart = (p) => <IconBase {...p}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></IconBase>;
+        const Sun = (p) => <IconBase {...p}><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></IconBase>;
+        const Settings = (p) => <IconBase {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></IconBase>;
+        const User = (p) => <IconBase {...p}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></IconBase>;
+        const WalletCards = (p) => <IconBase {...p}><rect x="3" y="5" width="18" height="14" rx="2" ry="2"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M7 15h.01"/><path d="M11 15h2"/></IconBase>;
+        const X = (p) => <IconBase {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></IconBase>;
+        const Palette = (p) => <IconBase {...p}><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></IconBase>;
+        const ImageIcon = (p) => <IconBase {...p}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></IconBase>;
+        const Type = (p) => <IconBase {...p}><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></IconBase>;
+        const Layers = (p) => <IconBase {...p}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></IconBase>;
+        const Sliders = (p) => <IconBase {...p}><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></IconBase>;
+        const Move = (p) => <IconBase {...p}><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></IconBase>;
+        const Zap = (p) => <IconBase {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></IconBase>;
+        const Code = (p) => <IconBase {...p}><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></IconBase>;
+        const Terminal = (p) => <IconBase {...p}><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></IconBase>;
+        const BookOpen = (p) => <IconBase {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></IconBase>;
+        const Eye = (p) => <IconBase {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></IconBase>;
+        const Save = (p) => <IconBase {...p}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></IconBase>;
+        const RotateCcw = (p) => <IconBase {...p}><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></IconBase>;
+
+
+        // --- HELPERS ---
+
+        function cx(...classes) {
+            return classes.filter(Boolean).join(" ");
+        }
+
+        const hexToRgb = (hex) => {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : "255, 255, 255";
+        };
+
+        const rgbToHex = (rgb) => {
+            if (!rgb || typeof rgb !== 'string') return "#ffffff";
+            const parts = rgb.split(',').map(v => parseInt(v.trim()));
+            if (parts.length < 3) return "#ffffff";
+            const [r, g, b] = parts;
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        };
+
+        // --- ASSETS & CONFIG ---
+
+        const headerNav = ["Marketplace", "AI Tools", "Digital Art", "Software", "Premium", "Docs", "Community"];
+
+        // --- COLOR BENDS SHADER COMPONENT ---
+
+        const MAX_COLORS = 8;
+        const SHADER_FRAG = `
+        #define MAX_COLORS ${MAX_COLORS}
+        uniform vec2 uCanvas;
+        uniform float uTime;
+        uniform float uSpeed;
+        uniform vec2 uRot;
+        uniform int uColorCount;
+        uniform vec3 uColors[MAX_COLORS];
+        uniform int uTransparent;
+        uniform float uScale;
+        uniform float uFrequency;
+        uniform float uWarpStrength;
+        uniform vec2 uPointer;
+        uniform float uMouseInfluence;
+        uniform float uParallax;
+        uniform float uNoise;
+        varying vec2 vUv;
+
+        void main() {
+            float t = uTime * uSpeed;
+            vec2 p = vUv * 2.0 - 1.0;
+            p += uPointer * uParallax * 0.1;
+            vec2 rp = vec2(p.x * uRot.x - p.y * uRot.y, p.x * uRot.y + p.y * uRot.x);
+            vec2 q = vec2(rp.x * (uCanvas.x / uCanvas.y), rp.y);
+            q /= max(uScale, 0.0001);
+            q /= 0.5 + 0.2 * dot(q, q);
+            q += 0.2 * cos(t) - 7.56;
+            vec2 toward = (uPointer - rp);
+            q += toward * uMouseInfluence * 0.2;
+            
+            vec3 col = vec3(0.0);
+            float a = 1.0;
+            
+            if (uColorCount > 0) {
+            vec2 s = q;
+            vec3 sumCol = vec3(0.0);
+            float cover = 0.0;
+            for (int i = 0; i < MAX_COLORS; ++i) {
+                if (i >= uColorCount) break;
+                s -= 0.01;
+                vec2 r = sin(1.5 * (s.yx * uFrequency) + 2.0 * cos(s * uFrequency));
+                float m0 = length(r + sin(5.0 * r.y * uFrequency - 3.0 * t + float(i)) / 4.0);
+                float kBelow = clamp(uWarpStrength, 0.0, 1.0);
+                float kMix = pow(kBelow, 0.3);
+                float gain = 1.0 + max(uWarpStrength - 1.0, 0.0);
+                vec2 disp = (r - s) * kBelow;
+                vec2 warped = s + disp * gain;
+                float m1 = length(warped + sin(5.0 * warped.y * uFrequency - 3.0 * t + float(i)) / 4.0);
+                float m = mix(m0, m1, kMix);
+                float w = 1.0 - exp(-6.0 / exp(6.0 * m));
+                sumCol += uColors[i] * w;
+                cover = max(cover, w);
+            }
+            col = clamp(sumCol, 0.0, 1.0);
+            a = uTransparent > 0 ? cover : 1.0;
+            }
+            
+            if (uNoise > 0.0001) {
+            float n = fract(sin(dot(gl_FragCoord.xy + vec2(uTime), vec2(12.9898, 78.233))) * 43758.5453123);
+            col += (n - 0.5) * uNoise;
+            col = clamp(col, 0.0, 1.0);
+            }
+            
+            vec3 rgb = (uTransparent > 0) ? col * a : col;
+            gl_FragColor = vec4(rgb, a);
+        }
+        `;
+
+        const SHADER_VERT = `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = vec4(position, 1.0);
+        }
+        `;
+
+        function ColorBends({
+            rotation = 0,
+            speed = 0.2,
+            colors = ["#ff5c7a", "#8a5cff", "#00ffd1"],
+            transparent = false,
+            autoRotate = 0,
+            scale = 1,
+            frequency = 1,
+            warpStrength = 1,
+            mouseInfluence = 0.5,
+            parallax = 0.1,
+            noise = 0.05
+        }) {
+            const containerRef = useRef(null);
+            const rendererRef = useRef(null);
+            const materialRef = useRef(null);
+            const rafRef = useRef(null);
+            const [threeReady, setThreeReady] = useState(false);
+
+            // Load Three.js (Check if already loaded via script tag)
+            useEffect(() => {
+                if (window.THREE) {
+                    setThreeReady(true);
+                    return;
+                }
+                // Fallback loading if script tag fails or removed
+                const script = document.createElement("script");
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+                script.onload = () => setThreeReady(true);
+                document.head.appendChild(script);
+            }, []);
+
+            useEffect(() => {
+                if (!threeReady || !containerRef.current) return;
+                const THREE = window.THREE;
+
+                const container = containerRef.current;
+                const scene = new THREE.Scene();
+                const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+                const geometry = new THREE.PlaneGeometry(2, 2);
+
+                const uColorsArray = Array.from({ length: MAX_COLORS }, () => new THREE.Vector3());
+                
+                const material = new THREE.ShaderMaterial({
+                    vertexShader: SHADER_VERT,
+                    fragmentShader: SHADER_FRAG,
+                    uniforms: {
+                        uCanvas: { value: new THREE.Vector2(1, 1) },
+                        uTime: { value: 0 },
+                        uSpeed: { value: speed },
+                        uRot: { value: new THREE.Vector2(1, 0) },
+                        uColorCount: { value: 0 },
+                        uColors: { value: uColorsArray },
+                        uTransparent: { value: transparent ? 1 : 0 },
+                        uScale: { value: scale },
+                        uFrequency: { value: frequency },
+                        uWarpStrength: { value: warpStrength },
+                        uPointer: { value: new THREE.Vector2(0, 0) },
+                        uMouseInfluence: { value: mouseInfluence },
+                        uParallax: { value: parallax },
+                        uNoise: { value: noise }
+                    },
+                    transparent: true
+                });
+
+                materialRef.current = material;
+                const mesh = new THREE.Mesh(geometry, material);
+                scene.add(mesh);
+
+                const renderer = new THREE.WebGLRenderer({
+                    alpha: true,
+                    antialias: false,
+                    powerPreference: "high-performance"
+                });
+                
+                rendererRef.current = renderer;
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                container.appendChild(renderer.domElement);
+
+                const clock = new THREE.Clock();
+                const pointer = new THREE.Vector2();
+                const targetPointer = new THREE.Vector2();
+
+                const handleResize = () => {
+                    if (!container) return;
+                    const w = container.clientWidth;
+                    const h = container.clientHeight;
+                    renderer.setSize(w, h);
+                    material.uniforms.uCanvas.value.set(w, h);
+                };
+
+                const handleMove = (e) => {
+                    const rect = container.getBoundingClientRect();
+                    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                    targetPointer.set(x, y);
+                };
+
+                window.addEventListener("resize", handleResize);
+                window.addEventListener("pointermove", handleMove);
+                handleResize();
+
+                const loop = () => {
+                    const delta = clock.getDelta();
+                    const elapsed = clock.elapsedTime;
+                    
+                    material.uniforms.uTime.value = elapsed;
+                    
+                    // Rotation logic
+                    const deg = (rotation % 360) + autoRotate * elapsed;
+                    const rad = (deg * Math.PI) / 180;
+                    material.uniforms.uRot.value.set(Math.cos(rad), Math.sin(rad));
+
+                    // Pointer smoothing
+                    pointer.lerp(targetPointer, delta * 5);
+                    material.uniforms.uPointer.value.copy(pointer);
+
+                    renderer.render(scene, camera);
+                    rafRef.current = requestAnimationFrame(loop);
+                };
+
+                loop();
+
+                return () => {
+                    cancelAnimationFrame(rafRef.current);
+                    window.removeEventListener("resize", handleResize);
+                    window.removeEventListener("pointermove", handleMove);
+                    if (renderer.domElement && container.contains(renderer.domElement)) {
+                        container.removeChild(renderer.domElement);
+                    }
+                    geometry.dispose();
+                    material.dispose();
+                    renderer.dispose();
+                };
+            }, [threeReady]);
+
+            // Update uniforms when props change
+            useEffect(() => {
+                if (!materialRef.current || !window.THREE) return;
+                const m = materialRef.current;
+                const THREE = window.THREE;
+
+                m.uniforms.uSpeed.value = speed;
+                m.uniforms.uScale.value = scale;
+                m.uniforms.uFrequency.value = frequency;
+                m.uniforms.uWarpStrength.value = warpStrength;
+                m.uniforms.uMouseInfluence.value = mouseInfluence;
+                m.uniforms.uParallax.value = parallax;
+                m.uniforms.uNoise.value = noise;
+                m.uniforms.uTransparent.value = transparent ? 1 : 0;
+
+                // Convert colors
+                const colorVecs = colors.slice(0, MAX_COLORS).map(c => {
+                    const col = new THREE.Color(c);
+                    return new THREE.Vector3(col.r, col.g, col.b);
+                });
+                
+                for (let i = 0; i < MAX_COLORS; i++) {
+                    if (i < colorVecs.length) {
+                        m.uniforms.uColors.value[i].copy(colorVecs[i]);
+                    }
+                }
+                m.uniforms.uColorCount.value = colorVecs.length;
+
+            }, [speed, scale, frequency, warpStrength, mouseInfluence, parallax, noise, colors, transparent]);
+
+            return <div ref={containerRef} className="w-full h-full absolute inset-0 z-0" />;
+        }
+
+        // --- DOCUMENTATION DATA ---
+
+        const INITIAL_DOCS_DATA = {
+            install: `pnpm add three
+        # or
+        npm install three
+        # or
+        yarn add three
+        # or
+        bun add three`,
+
+            usage: `import ColorBends from './ColorBends';
+
+        <ColorBends 
+            colors={["#ff5c7a", "#8a5cff", "#00ffd1"]} 
+            rotation={0} 
+            speed={0.2} 
+            scale={1} 
+            frequency={1} 
+            warpStrength={1} 
+            mouseInfluence={1} 
+            parallax={0.5} 
+            noise={0.1} 
+            transparent={false} 
+            autoRotate={0} 
+        />`,
+
+            css: `.color-bends-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }`,
+
+            code: `import React, { useEffect, useRef } from 'react';
+        import * as THREE from 'three';
+        import './ColorBends.css';
+
+        type ColorBendsProps = {
+            className?: string;
+            style?: React.CSSProperties;
+            rotation?: number;
+            speed?: number;
+            colors?: string[];
+            transparent?: boolean;
+            autoRotate?: number;
+            scale?: number;
+            frequency?: number;
+            warpStrength?: number;
+            mouseInfluence?: number;
+            parallax?: number;
+            noise?: number;
+        };
+
+        // ... (Shader Code Omitted for Brevity in this View) ...
+
+        export default function ColorBends({
+            className,
+            style,
+            rotation = 45,
+            speed = 0.2,
+            colors = [],
+            transparent = true,
+            autoRotate = 0,
+            scale = 1,
+            frequency = 1,
+            warpStrength = 1,
+            mouseInfluence = 1,
+            parallax = 0.5,
+            noise = 0.1
+        }: ColorBendsProps) {
+            // ... Implementation ...
+        }`
+        };
+
+
+        // --- UI COMPONENTS ---
+
+        function GlassUIStyles({ config }) {
+            return (
+                <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Playfair+Display:wght@700&family=JetBrains+Mono&family=Plus+Jakarta+Sans:wght@400;700&display=swap');
+
+                :root {
+                    --accent: ${config.accentColor};
+                    --text-color: rgb(${config.textColorLight});
+                    --glass-bg-base: ${config.glassBg};
+                    --glass-border-base: ${config.glassBorder};
+                    --glass-bg: rgba(var(--glass-bg-base), ${config.glassOpacity});
+                    --glass-bg-weak: rgba(var(--glass-bg-base), ${config.glassOpacity * 0.3});
+                    --glass-border: rgba(var(--glass-border-base), ${config.glassOpacity * 0.5});
+                    --blur: ${config.blur}px;
+                    --radius: ${config.radius}px;
+                    --bg-blur: ${config.bgBlur}px;
+                    --border-width: ${config.borderWidth}px;
+                    --saturate: ${config.saturate}%;
+                    --font-main: ${config.fontFamily};
+                    --shadow-opacity: ${config.shadowOpacity};
+                    --transition-speed: ${config.transitionSpeed}ms;
+                    --hover-scale: ${config.hoverScale};
+                }
+
+                .dark {
+                    --text-color: rgb(${config.textColorDark});
+                    --glass-bg: rgba(${config.glassBgDark}, ${config.glassOpacity});
+                    --glass-border: rgba(${config.glassBorderDark}, ${config.glassOpacity * 0.5});
+                }
+
+                body {
+                    font-family: var(--font-main), sans-serif;
+                    color: var(--text-color);
+                    transition: color 300ms ease;
+                    background: #000;
+                }
+
+                .glass {
+                    position: relative;
+                    border-radius: var(--radius);
+                    background: var(--glass-bg);
+                    border: var(--border-width) solid var(--glass-border);
+                    box-shadow: 0 10px 40px rgba(0, 0, 0, var(--shadow-opacity));
+                    backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+                    -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
+                    overflow: hidden;
+                    transition: background var(--transition-speed), border var(--transition-speed), backdrop-filter var(--transition-speed);
+                }
+
+                .btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 0.6rem;
+                    border-radius: 999px;
+                    padding: 0.7rem 1.4rem;
+                    transition: all var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+                    font-weight: 600;
+                    cursor: pointer;
+                }
+                .btn:hover { transform: scale(var(--hover-scale)); }
+
+                .wallpaper-container {
+                    position: fixed;
+                    inset: -100px;
+                    z-index: 0;
+                    pointer-events: none;
+                }
+
+                .wallpaper-custom {
+                    width: 100%;
+                    height: 100%;
+                    background-image: url('${config.bgUrl}');
+                    background-size: cover;
+                    background-position: center;
+                    filter: blur(var(--bg-blur));
+                    transition: filter 0.5s ease;
+                }
+
+                .title-text { color: var(--text-color); }
+                .muted { opacity: 0.7; }
+
+                .logo-wrap {
+                    width: 42px;
+                    height: 42px;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    box-shadow: 0 0 30px rgba(var(--accent), 0.4);
+                    transition: transform 0.3s ease;
+                }
+                .logo-wrap:hover { transform: rotate(5deg) scale(1.1); }
+
+                .field {
+                    background: var(--glass-bg-weak);
+                    border: 1px solid var(--glass-border);
+                    transition: border-color 0.3s ease;
+                }
+                .field:focus-within { border-color: rgba(var(--accent), 0.5); }
+
+                .no-scrollbar::-webkit-scrollbar { display: none; }
+                
+                ${config.customCSS}
+                `}</style>
+            );
+        }
+
+        function ColorPicker({ label, value, onChange }) {
+            const hex = rgbToHex(value);
+            return (
+                <div className="flex items-center justify-between mb-4">
+                <label className="text-[10px] uppercase tracking-wider font-bold opacity-60">{label}</label>
+                <div className="flex items-center gap-2 bg-white/5 p-1 rounded-lg border border-white/10">
+                    <input 
+                    type="color" 
+                    value={hex} 
+                    onChange={(e) => onChange(hexToRgb(e.target.value))}
+                    className="w-7 h-7 rounded cursor-pointer bg-transparent border-none p-0"
+                    />
+                    <span className="text-[9px] font-mono opacity-80 uppercase w-14">{hex}</span>
+                </div>
+                </div>
+            );
+        }
+
+        function AdminSlider({ label, value, min, max, step = 1, onChange, suffix = "" }) {
+            return (
+                <div className="space-y-2 mb-4">
+                <div className="flex justify-between items-center text-[10px] uppercase font-bold opacity-60">
+                    <span>{label}</span>
+                    <span className="font-mono bg-white/10 px-1.5 rounded">{value}{suffix}</span>
+                </div>
+                <input 
+                    type="range" min={min} max={max} step={step} value={value} 
+                    onChange={(e) => onChange(Number(e.target.value))}
+                    className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
+                />
+                </div>
+            );
+        }
+
+        function DocsModal({ initialData, onSave, onClose }) {
+            const [activeTab, setActiveTab] = useState("usage");
+            const [data, setData] = useState(initialData);
+            const [hasChanges, setHasChanges] = useState(false);
+
+            const handleTextChange = (e) => {
+                setData({
+                ...data,
+                [activeTab]: e.target.value
+                });
+                setHasChanges(true);
+            };
+
+            const handleSave = () => {
+                onSave(data);
+                setHasChanges(false);
+            };
+
+            const handleReset = () => {
+                setData(INITIAL_DOCS_DATA);
+                setHasChanges(true);
+            };
+
+            const TabButton = ({ id, label, icon: Icon }) => (
+                <button 
+                onClick={() => setActiveTab(id)}
+                className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${
+                    activeTab === id ? "border-purple-500 text-white" : "border-transparent text-white/40 hover:text-white"
+                }`}
+                >
+                <Icon size={14} /> {label}
+                </button>
+            );
+
+            return (
+                <div className="absolute inset-0 z-[110] bg-zinc-900/95 backdrop-blur-md flex flex-col animate-in fade-in duration-200">
+                <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5 shrink-0">
+                    <h3 className="text-white font-bold flex items-center gap-2">
+                    <BookOpen size={16} /> ColorBends Documentation
+                    </h3>
+                    <button onClick={onClose} className="text-white/50 hover:text-white transition"><X size={20} /></button>
+                </div>
+                
+                <div className="flex px-4 border-b border-white/10 shrink-0 overflow-x-auto no-scrollbar">
+                    <TabButton id="install" label="Install" icon={Terminal} />
+                    <TabButton id="usage" label="Usage" icon={Code} />
+                    <TabButton id="code" label="Code" icon={Code} />
+                    <TabButton id="css" label="Styles" icon={Palette} />
+                </div>
+
+                <div className="flex-1 overflow-hidden p-4 relative flex flex-col">
+                    <div className="bg-black/50 rounded-xl border border-white/10 flex-1 flex flex-col relative overflow-hidden focus-within:border-white/30 transition-colors">
+                    <div className="absolute top-2 right-2 px-2 py-1 bg-white/10 rounded text-[9px] text-white/40 font-mono pointer-events-none uppercase tracking-widest">
+                        Editable
+                    </div>
+                    <textarea
+                        value={data[activeTab]}
+                        onChange={handleTextChange}
+                        className="w-full h-full bg-transparent p-4 text-xs font-mono text-white/80 resize-none outline-none focus:bg-white/5 transition-colors leading-relaxed"
+                        spellCheck="false"
+                    />
+                    </div>
+                    
+                    <div className="mt-4 flex items-center justify-between gap-3 shrink-0">
+                    <button 
+                        onClick={handleReset}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 text-[10px] font-bold uppercase tracking-widest text-white/60 hover:bg-white/5 hover:text-white transition"
+                    >
+                        <RotateCcw size={12} /> Default
+                    </button>
+                    
+                    <button 
+                        onClick={handleSave}
+                        disabled={!hasChanges}
+                        className={`flex items-center gap-2 px-6 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                        hasChanges 
+                            ? "bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-900/20" 
+                            : "bg-white/5 text-white/30 cursor-not-allowed"
+                        }`}
+                    >
+                        <Save size={12} /> Simpan
+                    </button>
+                    </div>
+                </div>
+                </div>
+            );
+        }
+
+        function AdminDashboard({ config, setConfig, isOpen, onClose }) {
+            const [showDocs, setShowDocs] = useState(false);
+            const [docsData, setDocsData] = useState(INITIAL_DOCS_DATA);
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-y-0 right-0 w-96 z-[100] p-4 animate-in slide-in-from-right duration-300">
+                <div className="glass h-full flex flex-col glass-lg border-l border-white/20 shadow-2xl backdrop-blur-3xl relative overflow-hidden">
+                    
+                    {showDocs && (
+                    <DocsModal 
+                        initialData={docsData} 
+                        onSave={(newData) => {
+                        setDocsData(newData);
+                        // Opsional: Simpan ke localStorage jika diinginkan
+                        // localStorage.setItem("docs_data_v1", JSON.stringify(newData));
+                        }} 
+                        onClose={() => setShowDocs(false)} 
+                    />
+                    )}
+
+                    <div className="p-5 flex items-center justify-between border-b border-white/10 bg-white/5">
+                    <div className="flex items-center gap-2 text-white">
+                        <Sliders className="h-4 w-4" />
+                        <span className="font-bold text-sm tracking-tight">Professional Customizer</span>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition text-white"><X size={18} /></button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-6 space-y-10 no-scrollbar pb-24 text-white">
+                    
+                    <section>
+                        <h4 className="flex items-center gap-2 mb-5 text-xs font-black uppercase tracking-[0.2em] text-white/70">
+                        <Eye size={14} /> Developer Tools
+                        </h4>
+                        <div className="bg-white/5 rounded-xl p-4 border border-white/10 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-extrabold text-white tracking-wide">Active Shader Background</span>
+                            <button 
+                            onClick={() => setConfig({...config, useColorBends: !config.useColorBends})}
+                            className={`w-10 h-5 rounded-full relative transition-colors ${config.useColorBends ? "bg-purple-500" : "bg-white/20"}`}
+                            >
+                            <span className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${config.useColorBends ? "left-6" : "left-1"}`} />
+                            </button>
+                        </div>
+                        
+                        <button 
+                            onClick={() => setShowDocs(true)}
+                            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition border border-white/10 text-[10px] font-bold uppercase tracking-widest"
+                        >
+                            <BookOpen size={12} /> View Implementation Docs
+                        </button>
+                        </div>
+                        {config.useColorBends && (
+                        <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+                            <p className="text-[10px] opacity-50 uppercase tracking-widest font-bold">Shader Params</p>
+                            <AdminSlider label="Warp Strength" value={config.cbWarp} min={0} max={5} step={0.1} onChange={(v) => setConfig({...config, cbWarp: v})} />
+                            <AdminSlider label="Speed" value={config.cbSpeed} min={0} max={2} step={0.1} onChange={(v) => setConfig({...config, cbSpeed: v})} />
+                            <AdminSlider label="Frequency" value={config.cbFreq} min={0} max={5} step={0.1} onChange={(v) => setConfig({...config, cbFreq: v})} />
+                        </div>
+                        )}
+                    </section>
+
+                    <section>
+                        <h4 className="flex items-center gap-2 mb-5 text-xs font-black uppercase tracking-[0.2em] text-white/40">
+                        <Move size={14} /> Environment
+                        </h4>
+                        
+                        {/* Image input hanya muncul jika BUKAN mode shader */}
+                        {!config.useColorBends && (
+                        <div className="space-y-1 mb-4 animate-in fade-in">
+                            <label className="text-[10px] uppercase font-bold opacity-60">Background Image URL</label>
+                            <input 
+                            type="text" value={config.bgUrl} 
+                            onChange={(e) => setConfig({...config, bgUrl: e.target.value})}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs outline-none focus:border-white/30 text-white"
+                            />
+                        </div>
+                        )}
+
+                        {/* Blur dan Parallax sekarang tersedia untuk KEDUA mode */}
+                        <div className="space-y-4">
+                        <AdminSlider label="Background Blur" value={config.bgBlur} min={0} max={100} onChange={(v) => setConfig({...config, bgBlur: v})} suffix="px" />
+                        <AdminSlider label="Parallax Speed" value={config.parallaxSpeed} min={0} max={1} step={0.05} onChange={(v) => setConfig({...config, parallaxSpeed: v})} />
+                        </div>
+
+                    </section>
+
+                    <section>
+                        <h4 className="flex items-center gap-2 mb-5 text-xs font-black uppercase tracking-[0.2em] text-white/40">
+                        <Type size={14} /> Typography
+                        </h4>
+                        <div className="space-y-2 mb-4">
+                        <label className="text-[10px] uppercase font-bold opacity-60">Font Family</label>
+                        <select 
+                            value={config.fontFamily}
+                            onChange={(e) => setConfig({...config, fontFamily: e.target.value})}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs outline-none appearance-none text-white cursor-pointer"
+                        >
+                            <option value="'Plus Jakarta Sans'" className="text-black">Jakarta Sans (Modern)</option>
+                            <option value="'Inter'" className="text-black">Inter (Clean)</option>
+                            <option value="'Playfair Display'" className="text-black">Playfair (Elegant)</option>
+                            <option value="'JetBrains Mono'" className="text-black">JetBrains (Code)</option>
+                            <option value="system-ui" className="text-black">System Default</option>
+                        </select>
+                        </div>
+                        <ColorPicker label="Text Color (Light Mode)" value={config.textColorLight} onChange={(v) => setConfig({...config, textColorLight: v})} />
+                        <ColorPicker label="Text Color (Dark Mode)" value={config.textColorDark} onChange={(v) => setConfig({...config, textColorDark: v})} />
+                    </section>
+
+                    <section>
+                        <h4 className="flex items-center gap-2 mb-5 text-xs font-black uppercase tracking-[0.2em] text-white/40">
+                        <Layers size={14} /> Material Design
+                        </h4>
+                        <ColorPicker label="Accent Color" value={config.accentColor} onChange={(v) => setConfig({...config, accentColor: v})} />
+                        <ColorPicker label="Glass Base Color" value={config.glassBg} onChange={(v) => setConfig({...config, glassBg: v})} />
+                        <AdminSlider label="Glass Opacity" value={config.glassOpacity} min={0} max={1} step={0.01} onChange={(v) => setConfig({...config, glassOpacity: v})} />
+                        <AdminSlider label="Glass Blur" value={config.blur} min={0} max={60} onChange={(v) => setConfig({...config, blur: v})} suffix="px" />
+                        <AdminSlider label="Shadow Opacity" value={config.shadowOpacity} min={0} max={1} step={0.05} onChange={(v) => setConfig({...config, shadowOpacity: v})} />
+                        <AdminSlider label="Corner Radius" value={config.radius} min={0} max={40} onChange={(v) => setConfig({...config, radius: v})} suffix="px" />
+                    </section>
+
+                    <section>
+                        <h4 className="flex items-center gap-2 mb-5 text-xs font-black uppercase tracking-[0.2em] text-white/40">
+                        <Zap size={14} /> Motion Details
+                        </h4>
+                        <AdminSlider label="Transition Speed" value={config.transitionSpeed} min={100} max={1000} step={50} onChange={(v) => setConfig({...config, transitionSpeed: v})} suffix="ms" />
+                        <AdminSlider label="Hover Scale Effect" value={config.hoverScale} min={0.9} max={1.2} step={0.01} onChange={(v) => setConfig({...config, hoverScale: v})} />
+                    </section>
+                    </div>
+                    
+                    <div className="absolute bottom-0 left-0 right-0 p-5 bg-black/60 backdrop-blur-xl border-t border-white/10 flex gap-2">
+                    <button 
+                        onClick={() => { localStorage.removeItem("prof_glass_v5"); window.location.reload(); }}
+                        className="flex-1 py-2 rounded-xl border border-white/10 text-[10px] font-bold uppercase tracking-widest hover:bg-red-500/20 transition text-white"
+                    >
+                        Reset
+                    </button>
+                    <button 
+                        onClick={onClose}
+                        className="flex-1 py-2 rounded-xl bg-white text-black text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition"
+                    >
+                        Save
+                    </button>
+                    </div>
+                </div>
+                </div>
+            );
+        }
+
+        function HeaderTEXA({ theme, setTheme, onToggleAdmin }) {
+            const isDark = theme === "dark";
+
+            return (
+                <header className="sticky top-0 z-50 w-full px-4 pt-4">
+                <div className="mx-auto w-full max-w-6xl glass py-3 px-5 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                    <div className="logo-wrap">
+                        <img alt="Logo" src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcmZsdmIyeWFldDVlcXhoeGNpNWx3N2FyYml3Zjh4NnV2ancxaXBiayZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dXlUFmuOWFRlHYgc9i/giphy.gif" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="hidden sm:block">
+                        <h1 className="text-lg font-black tracking-tighter leading-none title-text uppercase">TEXA PRO</h1>
+                        <p className="text-[9px] uppercase tracking-[0.3em] opacity-50 mt-1">Interface Engine</p>
+                    </div>
+                    </div>
+
+                    <div className="flex-1 max-w-md px-6 hidden md:block">
+                    <div className="field rounded-2xl px-4 py-2 flex items-center gap-3">
+                        <Search size={16} className="opacity-50 title-text" />
+                        <input placeholder="Search tools..." className="bg-transparent text-sm outline-none flex-1 title-text" />
+                    </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                    <button onClick={onToggleAdmin} className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition group">
+                        <Settings size={20} className="title-text group-hover:rotate-45 transition-transform" />
+                    </button>
+                    <button onClick={() => setTheme(isDark ? "light" : "dark")} className="p-2.5 rounded-xl bg-white/5 border border-white/10 transition">
+                        {isDark ? <Moon size={20} className="title-text" /> : <Sun size={20} className="title-text" />}
+                    </button>
+                    <button className="hidden lg:flex items-center gap-2 bg-white text-black px-4 py-2 rounded-xl font-bold text-xs hover:opacity-90 transition shadow-lg shadow-white/10">
+                        <User size={14} /> Login
+                    </button>
+                    </div>
+                </div>
+                
+                <div className="mx-auto w-full max-w-6xl mt-3 px-2 flex gap-3 overflow-x-auto no-scrollbar pb-4">
+                    {headerNav.map(nav => (
+                    <button key={nav} className="bg-white/5 hover:bg-white/20 border border-white/20 hover:border-white/60 shadow-[0_0_10px_rgba(255,255,255,0.05)] hover:shadow-[0_0_20px_rgba(255,255,255,0.2)] backdrop-blur-md text-[9px] font-black uppercase tracking-[0.2em] text-white/60 hover:text-white transition-all duration-300 whitespace-nowrap py-2.5 px-6 rounded-full transform hover:scale-105">
+                        {nav}
+                    </button>
+                    ))}
+                </div>
+                </header>
+            );
+        }
+
+        function App() {
+            const [theme, setTheme] = useState("dark");
+            const [isAdminOpen, setIsAdminOpen] = useState(false);
+            const [scrollY, setScrollY] = useState(0);
+            
+            const [config, setConfig] = useState({
+                useColorBends: false,
+                cbSpeed: 0.2,
+                cbWarp: 1,
+                cbFreq: 1,
+                bgUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop",
+                bgBlur: 5,
+                parallaxSpeed: 0.2,
+                accentColor: "124, 58, 237",
+                textColorLight: "30, 41, 59",
+                textColorDark: "248, 250, 252",
+                fontFamily: "'Plus Jakarta Sans'",
+                glassBg: "255, 255, 255", 
+                glassOpacity: 0.15,
+                glassBgDark: "15, 23, 42",
+                glassBorder: "255, 255, 255",
+                glassBorderDark: "255, 255, 255",
+                blur: 30,
+                radius: 20,
+                borderWidth: 1,
+                saturate: 160,
+                shadowOpacity: 0.3,
+                transitionSpeed: 300,
+                hoverScale: 1.05,
+                customCSS: ""
+            });
+
+            useEffect(() => {
+                const handleScroll = () => setScrollY(window.scrollY);
+                window.addEventListener("scroll", handleScroll, { passive: true });
+                const saved = localStorage.getItem("prof_glass_v5");
+                if (saved) setConfig(JSON.parse(saved));
+                return () => window.removeEventListener("scroll", handleScroll);
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem("prof_glass_v5", JSON.stringify(config));
+            }, [config]);
+
+            return (
+                <div className={theme === "dark" ? "dark" : ""}>
+                <GlassUIStyles config={config} />
+                
+                <div className="relative min-h-[200vh] transition-colors duration-500">
+                    <div className="wallpaper-container">
+                    <div 
+                        className="w-full h-full"
+                        style={{ 
+                            transform: `translateY(${scrollY * config.parallaxSpeed}px)`,
+                            filter: `blur(${config.bgBlur}px)`,
+                            transition: 'filter 0.5s ease'
+                        }}
+                    >
+                        {config.useColorBends ? (
+                            <ColorBends 
+                            speed={config.cbSpeed} 
+                            warpStrength={config.cbWarp} 
+                            frequency={config.cbFreq}
+                            />
+                        ) : (
+                        <div 
+                            className="w-full h-full bg-cover bg-center" 
+                            style={{ backgroundImage: `url('${config.bgUrl}')` }}
+                        />
+                        )}
+                    </div>
+                    </div>
+                    
+                    <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none z-[1]" />
+
+                    <div className="relative z-10">
+                    <HeaderTEXA theme={theme} setTheme={setTheme} onToggleAdmin={() => setIsAdminOpen(!isAdminOpen)} />
+                    
+                    <main className="max-w-6xl mx-auto px-4 mt-24">
+                        <section className="text-center py-20 relative">
+                        {/* Perubahan pada badge Architecture Engine v4 */}
+                        <span className="inline-block bg-white/15 px-8 py-3 rounded-full text-[11px] font-black uppercase tracking-[0.3em] border border-white/60 shadow-[0_0_25px_rgba(255,255,255,0.15)] backdrop-blur-3xl mb-8 text-white transition-all hover:scale-105 hover:bg-white/20 cursor-default">
+                            Architecture Engine v4
+                        </span>
+                        
+                        <h1 className="text-6xl md:text-9xl font-black tracking-tighter leading-[0.8] title-text mb-10 drop-shadow-2xl">
+                            MASTERING <br /> 
+                            {/* Sedikit penyesuaian pada DETAILS agar selaras dengan ketegasan di atas */}
+                            <span className="opacity-40 italic text-transparent bg-clip-text bg-gradient-to-b from-white/60 to-transparent" style={{ WebkitTextStroke: '1px rgba(255,255,255,0.2)' }}>
+                                DETAILS.
+                            </span>
+                        </h1>
+                        <p className="mt-4 text-xl opacity-80 max-w-2xl mx-auto font-medium leading-relaxed title-text drop-shadow-lg">
+                            Semua parameter warna, teks, dan material kini telah diperbaiki dan dapat diatur secara real-time.
+                        </p>
+                        <div className="mt-14 flex justify-center gap-6">
+                            <button className="btn bg-white text-black px-12 py-4 shadow-[0_0_40px_rgba(255,255,255,0.3)] hover:shadow-[0_0_60px_rgba(255,255,255,0.5)] text-xs font-black uppercase tracking-widest transition-all hover:scale-105">
+                            Explore Now
+                            </button>
+                            <button className="btn glass px-12 py-4 text-xs font-black uppercase tracking-widest border-white/30 title-text hover:bg-white/10 hover:border-white/50">
+                            Tutorial
+                            </button>
+                        </div>
+                        </section>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pb-60">
+                        {[
+                            { title: "Material Science", icon: <Layers />, desc: "Simulasi kaca fisik dengan kontrol blur dan opasitas presisi." },
+                            { title: "Dynamic Motion", icon: <Zap />, desc: "Transisi antar elemen yang halus menggunakan kurva bezier." },
+                            { title: "Color Theory", icon: <Palette />, desc: "Sistem pewarnaan RGB yang kini bekerja 100% pada semua elemen." }
+                        ].map((card, i) => (
+                            <div key={i} className="glass p-12 group cursor-default border-white/10">
+                            <div className="w-16 h-16 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center mb-8 group-hover:bg-white/10 transition-colors">
+                                {React.cloneElement(card.icon, { size: 28, className: "opacity-80 title-text" })}
+                            </div>
+                            <h3 className="text-2xl font-black mb-4 title-text uppercase tracking-tighter">{card.title}</h3>
+                            <p className="text-sm opacity-60 leading-relaxed title-text">
+                                {card.desc}
+                            </p>
+                            </div>
+                        ))}
+                        </div>
+                    </main>
+                    </div>
+
+                    <AdminDashboard config={config} setConfig={setConfig} isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} />
+                </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

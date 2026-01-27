@@ -7,7 +7,7 @@ import {
     updateDockItem,
     deleteDockItem,
     DockItem
-} from '../services/dockService';
+} from '../services/supabaseDockService';
 
 interface DockManagerProps {
     showToast: (message: string, type: 'success' | 'error') => void;

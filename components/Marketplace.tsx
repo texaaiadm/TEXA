@@ -9,7 +9,7 @@ import {
   DashboardContentSettings,
   DEFAULT_DASHBOARD_CONTENT,
   subscribeToDashboardContent
-} from '../services/dashboardContentService';
+} from '../services/supabaseDashboardService';
 
 
 // Fallback mock tools (used when Firestore is empty)

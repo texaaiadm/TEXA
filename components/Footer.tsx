@@ -1,6 +1,6 @@
 // Footer Component - Customizable footer with social media, contact, and maps
 import { useEffect, useState } from 'react';
-import { subscribeToFooterSettings, FooterSettings, SocialMediaLink } from '../services/footerService';
+import { subscribeToFooterSettings, FooterSettings, SocialMediaLink } from '../services/supabaseFooterService';
 
 export default function Footer() {
     const [settings, setSettings] = useState<FooterSettings | null>(null);

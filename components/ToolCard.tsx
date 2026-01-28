@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AITool } from '../types';
-import { auth } from '../services/firebase';
+import { getSession } from '../services/supabaseAuthService';
 import { useNavigate } from 'react-router-dom';
 import { isUrlIframeAllowed } from '../utils/iframePolicy';
 import {
@@ -105,7 +105,8 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
     }
 
     const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const session = await getSession();
+    const idToken = session?.access_token || null;
 
     return await new Promise<boolean>((resolve) => {
       const timeoutId = window.setTimeout(() => {

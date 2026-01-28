@@ -1,7 +1,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { TexaUser } from '../services/firebase';
+import { TexaUser } from '../services/supabaseAuthService';
 import { useTheme } from '../services/ThemeContext';
 import {
   DEFAULT_HEADER_SETTINGS,

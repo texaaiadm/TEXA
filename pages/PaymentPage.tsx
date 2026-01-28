@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PAYMENT_METHODS, generateRefId, formatIDR } from '../services/tokopayService';
-import { auth } from '../services/firebase';
+import { getSession } from '../services/supabaseAuthService';
 
 interface PaymentMethod {
     code: string;
@@ -18,6 +18,7 @@ const PaymentPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [selectedMethod, setSelectedMethod] = useState<string>('QRISREALTIME');
     const [paymentResult, setPaymentResult] = useState<any>(null);
+    const [session, setSession] = useState<any>(null);
 
     // Parse search params from hash URL (works with HashRouter)
     const searchParams = useMemo(() => {
@@ -35,13 +36,18 @@ const PaymentPage: React.FC = () => {
 
     // Check if user is logged in
     useEffect(() => {
-        if (!auth.currentUser) {
-            navigate('/?login=true');
-        }
+        const checkSession = async () => {
+            const currentSession = await getSession();
+            setSession(currentSession);
+            if (!currentSession) {
+                navigate('/?login=true');
+            }
+        };
+        checkSession();
     }, [navigate]);
 
     const handlePayment = async () => {
-        if (!auth.currentUser) {
+        if (!session?.user) {
             setError('Silakan login terlebih dahulu');
             return;
         }
@@ -62,8 +68,8 @@ const PaymentPage: React.FC = () => {
                     refId,
                     nominal: amount,
                     metode: selectedMethod,
-                    userId: auth.currentUser.uid,
-                    userEmail: auth.currentUser.email,
+                    userId: session.user.id,
+                    userEmail: session.user.email,
                     type,
                     itemId,
                     itemName,

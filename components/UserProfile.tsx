@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { TexaUser } from '../services/firebase';
+import { TexaUser } from '../services/supabaseAuthService';
 
 interface UserProfileProps {
   user: TexaUser;
@@ -41,14 +41,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLogout }) => {
             <p className="text-slate-400 font-medium mb-5 md:mb-6 break-all">{user.email}</p>
             <div className="flex flex-wrap justify-center md:justify-start gap-4">
               <span className={`px-5 py-2 border rounded-full text-xs font-black uppercase tracking-widest ${user.role === 'ADMIN'
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                  : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
                 }`}>
                 {user.role === 'ADMIN' ? 'Administrator' : 'Premium Member'}
               </span>
               <span className={`px-5 py-2 border rounded-full text-xs font-black uppercase tracking-widest ${user.subscriptionEnd
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                  : 'bg-red-500/10 text-red-400 border-red-500/20'
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : 'bg-red-500/10 text-red-400 border-red-500/20'
                 }`}>
                 {user.subscriptionEnd ? 'Status: Aktif' : 'Status: Free'}
               </span>

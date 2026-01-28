@@ -1,6 +1,6 @@
 // Admin Service - Manage Users and Subscriptions - Migrated to Supabase
 import { supabase } from './supabaseService';
-import { TexaUser } from './firebase';
+import { TexaUser } from './supabaseAuthService';
 
 // Table names for Supabase
 const USERS_TABLE = 'texa_users';

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AITool } from '../types';
-import { TexaUser } from '../services/firebase';
+import { TexaUser } from '../services/supabaseAuthService';
 import ToolCard from './ToolCard';
 import CompactToolCard from './CompactToolCard';
 import { subscribeToCatalog, CatalogItem } from '../services/supabaseCatalogService';

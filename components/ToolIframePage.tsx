@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
-import { TexaUser } from '../services/firebase';
+import { TexaUser } from '../services/supabaseAuthService';
 import { getCatalogItem, CatalogItem } from '../services/supabaseCatalogService';
 import { isUrlIframeAllowed } from '../utils/iframePolicy';
 

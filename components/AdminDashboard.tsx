@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TexaUser } from '../services/firebase';
+import { TexaUser } from '../services/supabaseAuthService';
 import {
   subscribeToUsers,
   updateUser,

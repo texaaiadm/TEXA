@@ -1,8 +1,7 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore/lite';
-import { db, COLLECTIONS } from './firebase';
+// Header Service - Migrated to Supabase
+import { supabase } from './supabaseService';
 
-const SETTINGS_COLLECTION = COLLECTIONS.SETTINGS;
-const HEADER_DOC = 'header_config';
+const SETTINGS_KEY = 'header_config';
 
 export type HeaderNavActionType = 'route' | 'url';
 
@@ -52,10 +51,17 @@ export const DEFAULT_HEADER_SETTINGS: HeaderSettings = {
 
 export const getHeaderSettings = async (): Promise<HeaderSettings> => {
   try {
-    const docRef = doc(db, SETTINGS_COLLECTION, HEADER_DOC);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) return { ...DEFAULT_HEADER_SETTINGS, ...docSnap.data() } as HeaderSettings;
-    return DEFAULT_HEADER_SETTINGS;
+    const { data, error } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', SETTINGS_KEY)
+      .single();
+
+    if (error || !data) {
+      return DEFAULT_HEADER_SETTINGS;
+    }
+
+    return { ...DEFAULT_HEADER_SETTINGS, ...(data.value as object) } as HeaderSettings;
   } catch (error) {
     console.error('Error getting header settings:', error);
     return DEFAULT_HEADER_SETTINGS;
@@ -63,18 +69,20 @@ export const getHeaderSettings = async (): Promise<HeaderSettings> => {
 };
 
 export const subscribeToHeaderSettings = (callback: (settings: HeaderSettings) => void) => {
-  const docRef = doc(db, SETTINGS_COLLECTION, HEADER_DOC);
   let stopped = false;
+  let inFlight = false;
 
   const fetchOnce = async () => {
-    if (stopped) return;
+    if (stopped || inFlight) return;
+    inFlight = true;
     try {
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) callback({ ...DEFAULT_HEADER_SETTINGS, ...docSnap.data() } as HeaderSettings);
-      else callback(DEFAULT_HEADER_SETTINGS);
+      const settings = await getHeaderSettings();
+      if (!stopped) callback(settings);
     } catch (error) {
       console.error('Error subscribing to header settings:', error);
-      callback(DEFAULT_HEADER_SETTINGS);
+      if (!stopped) callback(DEFAULT_HEADER_SETTINGS);
+    } finally {
+      inFlight = false;
     }
   };
 
@@ -91,20 +99,30 @@ export const saveHeaderSettings = async (
   updatedBy?: string
 ): Promise<boolean> => {
   try {
-    const docRef = doc(db, SETTINGS_COLLECTION, HEADER_DOC);
-    await setDoc(
-      docRef,
-      {
-        ...settings,
-        updatedAt: new Date().toISOString(),
-        updatedBy: updatedBy || 'admin'
-      },
-      { merge: true }
-    );
+    const current = await getHeaderSettings();
+    const merged = {
+      ...current,
+      ...settings,
+      updatedAt: new Date().toISOString(),
+      updatedBy: updatedBy || 'admin'
+    };
+
+    const { error } = await supabase
+      .from('settings')
+      .upsert({
+        key: SETTINGS_KEY,
+        value: merged,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'key' });
+
+    if (error) {
+      console.error('Error saving header settings:', error);
+      return false;
+    }
+
     return true;
   } catch (error) {
     console.error('Error saving header settings:', error);
     return false;
   }
 };
-

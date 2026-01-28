@@ -1,14 +1,7 @@
-// Extension Settings Service - Kelola konfigurasi extension
-import {
-    doc,
-    getDoc,
-    setDoc
-} from 'firebase/firestore/lite';
-import { db, COLLECTIONS } from './firebase';
+// Extension Settings Service - Migrated to Supabase
+import { supabase } from './supabaseService';
 
-// Collection and document name
-const SETTINGS_COLLECTION = COLLECTIONS.SETTINGS;
-const EXTENSION_DOC = 'extension_config';
+const SETTINGS_KEY = 'extension_config';
 
 // Extension Settings Interface
 export interface ExtensionSettings {
@@ -50,13 +43,17 @@ export const DEFAULT_EXTENSION_SETTINGS: ExtensionSettings = {
 // Get extension settings
 export const getExtensionSettings = async (): Promise<ExtensionSettings> => {
     try {
-        const docRef = doc(db, SETTINGS_COLLECTION, EXTENSION_DOC);
-        const docSnap = await getDoc(docRef);
+        const { data, error } = await supabase
+            .from('settings')
+            .select('value')
+            .eq('key', SETTINGS_KEY)
+            .single();
 
-        if (docSnap.exists()) {
-            return { ...DEFAULT_EXTENSION_SETTINGS, ...docSnap.data() } as ExtensionSettings;
+        if (error || !data) {
+            return DEFAULT_EXTENSION_SETTINGS;
         }
-        return DEFAULT_EXTENSION_SETTINGS;
+
+        return { ...DEFAULT_EXTENSION_SETTINGS, ...(data.value as object) } as ExtensionSettings;
     } catch (error) {
         console.error('Error getting extension settings:', error);
         return DEFAULT_EXTENSION_SETTINGS;
@@ -65,22 +62,20 @@ export const getExtensionSettings = async (): Promise<ExtensionSettings> => {
 
 // Subscribe to settings changes
 export const subscribeToExtensionSettings = (callback: (settings: ExtensionSettings) => void) => {
-    const docRef = doc(db, SETTINGS_COLLECTION, EXTENSION_DOC);
-
     let stopped = false;
+    let inFlight = false;
 
     const fetchOnce = async () => {
-        if (stopped) return;
+        if (stopped || inFlight) return;
+        inFlight = true;
         try {
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                callback({ ...DEFAULT_EXTENSION_SETTINGS, ...docSnap.data() } as ExtensionSettings);
-            } else {
-                callback(DEFAULT_EXTENSION_SETTINGS);
-            }
+            const settings = await getExtensionSettings();
+            if (!stopped) callback(settings);
         } catch (error) {
             console.error('Error subscribing to extension settings:', error);
-            callback(DEFAULT_EXTENSION_SETTINGS);
+            if (!stopped) callback(DEFAULT_EXTENSION_SETTINGS);
+        } finally {
+            inFlight = false;
         }
     };
 
@@ -98,12 +93,27 @@ export const saveExtensionSettings = async (
     updatedBy?: string
 ): Promise<boolean> => {
     try {
-        const docRef = doc(db, SETTINGS_COLLECTION, EXTENSION_DOC);
-        await setDoc(docRef, {
+        const current = await getExtensionSettings();
+        const merged = {
+            ...current,
             ...settings,
             updatedAt: new Date().toISOString(),
             updatedBy: updatedBy || 'admin'
-        }, { merge: true });
+        };
+
+        const { error } = await supabase
+            .from('settings')
+            .upsert({
+                key: SETTINGS_KEY,
+                value: merged,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+
+        if (error) {
+            console.error('Error saving extension settings:', error);
+            return false;
+        }
+
         return true;
     } catch (error) {
         console.error('Error saving extension settings:', error);

@@ -1,22 +1,10 @@
-// Admin Service - Manage Users and Subscriptions
-import {
-    collection,
-    getDocs,
-    doc,
-    deleteDoc,
-    query,
-    orderBy,
-    where,
-    addDoc,
-    limit,
-    setDoc
-} from "firebase/firestore/lite";
-import { ref, set, remove, onValue, get, update } from "firebase/database";
-import { auth, db, rtdb, TexaUser, COLLECTIONS, RTDB_PATHS } from "./firebase";
+// Admin Service - Manage Users and Subscriptions - Migrated to Supabase
+import { supabase } from './supabaseService';
+import { TexaUser } from './firebase';
 
-// Collection names - use from centralized config
-const USERS_COLLECTION = COLLECTIONS.USERS;
-const SUBSCRIPTIONS_COLLECTION = COLLECTIONS.TRANSACTIONS;
+// Table names for Supabase
+const USERS_TABLE = 'texa_users';
+const TRANSACTIONS_TABLE = 'texa_transactions';
 
 // Subscription Plan Interface
 export interface SubscriptionPlan {
@@ -62,24 +50,47 @@ const withTimeout = async <T,>(promise: Promise<T>, ms: number, timeoutMessage: 
     }
 };
 
-// Get All Users (Realtime)
+// Convert Supabase row to TexaUser format
+const rowToTexaUser = (row: any): TexaUser => ({
+    id: row.id,
+    email: row.email || '',
+    name: row.name || row.email || '',
+    role: row.role || 'MEMBER',
+    isActive: row.is_active !== false,
+    subscriptionEnd: row.subscription_end || null,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || null,
+    lastLogin: row.last_login || null,
+    photoUrl: row.photo_url || null
+});
+
+// Get All Users (Realtime subscription via polling)
 export const subscribeToUsers = (callback: (users: TexaUser[]) => void) => {
     let stopped = false;
-    const usersRef = collection(db, USERS_COLLECTION);
-    const q = query(usersRef, orderBy('createdAt', 'desc'));
+    let inFlight = false;
 
     const fetchOnce = async () => {
-        if (stopped) return;
+        if (stopped || inFlight) return;
+        inFlight = true;
         try {
-            const snapshot = await withTimeout(getDocs(q), 10000, 'Timeout: ambil data user terlalu lama');
-            const users: TexaUser[] = [];
-            snapshot.forEach((docSnap) => {
-                users.push({ ...docSnap.data(), id: docSnap.id } as TexaUser);
-            });
+            const { data, error } = await supabase
+                .from(USERS_TABLE)
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('Error fetching users:', error);
+                callback([]);
+                return;
+            }
+
+            const users: TexaUser[] = (data || []).map(rowToTexaUser);
             callback(users);
         } catch (error) {
             console.error('Error fetching users:', error);
             callback([]);
+        } finally {
+            inFlight = false;
         }
     };
 
@@ -94,20 +105,76 @@ export const subscribeToUsers = (callback: (users: TexaUser[]) => void) => {
 // Get All Users (One-time)
 export const getAllUsers = async (): Promise<TexaUser[]> => {
     try {
-        const usersRef = collection(db, USERS_COLLECTION);
-        const q = query(usersRef, orderBy('createdAt', 'desc'));
-        const snapshot = await withTimeout(getDocs(q), 10000, 'Timeout: ambil data user terlalu lama');
+        const { data, error } = await supabase
+            .from(USERS_TABLE)
+            .select('*')
+            .order('created_at', { ascending: false });
 
-        const users: TexaUser[] = [];
-        snapshot.forEach((doc) => {
-            users.push({ ...doc.data(), id: doc.id } as TexaUser);
-        });
+        if (error) {
+            console.error('Error getting users:', error);
+            return [];
+        }
 
-        return users;
+        return (data || []).map(rowToTexaUser);
     } catch (error) {
         console.error('Error getting users:', error);
         return [];
     }
+};
+
+// Admin API base URL
+const ADMIN_API_BASE =
+    (import.meta as any).env?.VITE_ADMIN_API_BASE || (import.meta.env.PROD ? '' : 'http://127.0.0.1:8787');
+
+// Get auth token from Supabase
+const getAuthToken = async (): Promise<string | null> => {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session?.access_token || null;
+    } catch {
+        return null;
+    }
+};
+
+const callAdminApi = async <T>(path: string, body: any): Promise<T> => {
+    const token = await getAuthToken();
+    const isDev = import.meta.env.DEV || window.location.hostname === 'localhost';
+
+    const headers: Record<string, string> = {
+        'content-type': 'application/json',
+    };
+
+    if (token) {
+        headers['authorization'] = `Bearer ${token}`;
+    }
+
+    // Add dev bypass header for localhost
+    if (isDev) {
+        headers['x-dev-bypass'] = 'true';
+    }
+
+    let res: Response;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+        res = await fetch(`${ADMIN_API_BASE}${path}`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal
+        });
+    } catch (err: any) {
+        if (err?.name === 'AbortError') {
+            throw new Error('Timeout: server admin tidak merespons');
+        }
+        throw new Error('Server admin belum jalan');
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.success) throw new Error(data?.message || 'Permintaan gagal');
+    return data as T;
 };
 
 export const createManualMember = async (input: {
@@ -138,40 +205,6 @@ export const createManualMember = async (input: {
     return { success: true, action: result.action };
 };
 
-const ADMIN_API_BASE =
-    (import.meta as any).env?.VITE_ADMIN_API_BASE || (import.meta.env.PROD ? '' : 'http://127.0.0.1:8787');
-
-const callAdminApi = async <T>(path: string, body: any): Promise<T> => {
-    const token = await auth.currentUser?.getIdToken();
-    if (!token) throw new Error('Anda harus login sebagai admin');
-
-    let res: Response;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    try {
-        res = await fetch(`${ADMIN_API_BASE}${path}`, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                'authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(body),
-            signal: controller.signal
-        });
-    } catch (err: any) {
-        if (err?.name === 'AbortError') {
-            throw new Error('Timeout: server admin tidak merespons');
-        }
-        throw new Error('Server admin belum jalan');
-    } finally {
-        clearTimeout(timeoutId);
-    }
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.success) throw new Error(data?.message || 'Permintaan gagal');
-    return data as T;
-};
-
 export const createAuthMemberWithPassword = async (input: {
     email: string;
     password: string;
@@ -194,140 +227,118 @@ export const setMemberPassword = async (input: {
 // Update User
 export const updateUser = async (userId: string, data: Partial<TexaUser>): Promise<boolean> => {
     try {
-        const userRef = doc(db, USERS_COLLECTION, userId);
+        // Convert TexaUser fields to Supabase column names
+        const updateData: Record<string, any> = {
+            updated_at: new Date().toISOString()
+        };
 
-        // Use setDoc with merge instead of updateDoc to handle cases where doc might be missing
-        await withTimeout(setDoc(userRef, {
-            ...data,
-            updatedAt: new Date().toISOString()
-        }, { merge: true }), 10000, 'Timeout: update user terlalu lama');
+        if (data.name !== undefined) updateData.name = data.name;
+        if (data.role !== undefined) updateData.role = data.role;
+        if (data.isActive !== undefined) updateData.is_active = data.isActive;
+        if (data.subscriptionEnd !== undefined) updateData.subscription_end = data.subscriptionEnd;
+        if (data.email !== undefined) updateData.email = data.email;
+        if (data.photoUrl !== undefined) updateData.photo_url = data.photoUrl;
+        if (data.lastLogin !== undefined) updateData.last_login = data.lastLogin;
 
-        // Also update RTDB (with safety check)
-        if (rtdb && (data.role || data.isActive !== undefined || data.subscriptionEnd !== undefined)) {
-            const updates: any = { updatedAt: new Date().toISOString() };
-            if (data.role) updates.role = data.role;
-            if (data.isActive !== undefined) updates.isActive = data.isActive;
-            if (data.subscriptionEnd !== undefined) updates.subscriptionEnd = data.subscriptionEnd;
+        const { error } = await supabase
+            .from(USERS_TABLE)
+            .update(updateData)
+            .eq('id', userId);
 
-            void withTimeout(
-                update(ref(rtdb, `${RTDB_PATHS.USERS}/${userId}`), updates),
-                8000,
-                'Timeout: update RTDB terlalu lama'
-            ).catch(async () => {
-                try {
-                    const snapshot = await withTimeout(
-                        get(ref(rtdb, `${RTDB_PATHS.USERS}/${userId}`)),
-                        8000,
-                        'Timeout: ambil RTDB terlalu lama'
-                    );
-                    const existing = snapshot.exists() ? snapshot.val() : {};
-                    await withTimeout(set(ref(rtdb, `${RTDB_PATHS.USERS}/${userId}`), {
-                        ...existing,
-                        ...data,
-                        updatedAt: new Date().toISOString()
-                    }), 8000, 'Timeout: set RTDB terlalu lama');
-                } catch {
-                }
-            });
+        if (error) {
+            console.error('Error updating user:', error);
+            return false;
         }
 
         return true;
     } catch (error) {
+        console.error('Error updating user:', error);
         return false;
     }
 };
 
-// Test Database Permissions
+// Test Database Permissions - Updated for Supabase
 export const testDatabasePermissions = async (): Promise<{ firestore: string; rtdb: string }> => {
     const results = { firestore: 'Testing...', rtdb: 'Testing...' };
 
-    // Test Firestore
-    try {
-        if (!auth.currentUser) {
-            results.firestore = 'FAILED (not-authenticated): Anda belum login';
-        } else {
-            const testDocRef = doc(db, COLLECTIONS.SETTINGS, 'permission_test');
-            await withTimeout(setDoc(testDocRef, {
-                test: true,
-                updatedAt: new Date().toISOString(),
-                user: auth.currentUser?.email
-            }), 10000, 'Timeout: test Firestore terlalu lama');
-            results.firestore = 'OK';
-        }
-    } catch (e: any) {
-        const code = e?.code ? String(e.code) : '';
-        const message = e?.message ? String(e.message) : 'Unknown error';
-        results.firestore = code ? `FAILED (${code}): ${message}` : `FAILED: ${message}`;
-    }
+    // Get Supabase URL from environment
+    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+    const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+    const adminApiBase = (import.meta as any).env?.VITE_ADMIN_API_BASE || (import.meta.env.PROD ? '' : 'http://127.0.0.1:8787');
 
-    // Test RTDB - with improved error handling
+    // Test Supabase Connection (replaces Firestore test)
     try {
-        if (!auth.currentUser) {
-            results.rtdb = 'FAILED (not-authenticated): Anda belum login';
+        if (!supabaseUrl || !supabaseKey) {
+            results.firestore = 'FAILED: Supabase not configured';
         } else {
-            // Check if RTDB is initialized
-            if (!rtdb) {
-                results.rtdb = 'FAILED: RTDB not initialized - Check Firebase config';
-                return results;
-            }
-
-            const testPath = `test_connection/${Date.now()}`;
-            const testRef = ref(rtdb, testPath);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
 
             try {
-                // Try WRITE test
-                await withTimeout(
-                    set(testRef, {
-                        test: true,
-                        timestamp: new Date().toISOString(),
-                        user: auth.currentUser?.email
-                    }),
-                    8000,
-                    'Write timeout'
-                );
+                const response = await fetch(`${supabaseUrl}/rest/v1/`, {
+                    method: 'GET',
+                    headers: {
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`
+                    },
+                    signal: controller.signal
+                });
 
-                // Cleanup
-                await withTimeout(remove(testRef), 4000, 'Cleanup timeout').catch(() => { });
+                clearTimeout(timeoutId);
 
-                results.rtdb = 'OK';
-            } catch (writeError: any) {
-                // If write fails, try READ test as fallback
-                console.log('RTDB write failed, trying read test...', writeError.message);
-
-                try {
-                    const readRef = ref(rtdb, '/');
-                    await withTimeout(
-                        get(readRef),
-                        8000,
-                        'Read timeout'
-                    );
-
-                    // Read succeeded but write failed
-                    results.rtdb = 'PARTIAL: Read OK, Write FAILED - Check RTDB Rules (write access)';
-                } catch (readError: any) {
-                    // Both read and write failed
-                    if (writeError.message.includes('timeout') || writeError.message.includes('Timeout')) {
-                        results.rtdb = 'FAILED: Connection timeout - RTDB belum aktif / URL salah / diblokir jaringan';
-                    } else if (writeError.message.includes('permission') || writeError.code === 'PERMISSION_DENIED') {
-                        results.rtdb = 'FAILED: Permission denied - Update RTDB Rules di Firebase Console';
-                    } else {
-                        results.rtdb = `FAILED: ${writeError.message}`;
-                    }
+                if (response.ok) {
+                    results.firestore = 'OK (Supabase)';
+                } else {
+                    results.firestore = `FAILED: HTTP ${response.status}`;
+                }
+            } catch (e: any) {
+                clearTimeout(timeoutId);
+                if (e.name === 'AbortError') {
+                    results.firestore = 'FAILED: Connection timeout';
+                } else {
+                    results.firestore = `FAILED: ${e.message}`;
                 }
             }
         }
     } catch (e: any) {
-        const code = e?.code ? String(e.code) : '';
-        const message = e?.message ? String(e.message) : 'Unknown error';
+        results.firestore = `FAILED: ${e.message}`;
+    }
 
-        // Specific error messages
-        if (code === 'PERMISSION_DENIED' || message.includes('permission')) {
-            results.rtdb = 'FAILED: Permission denied - Update RTDB Rules';
-        } else if (message.includes('timeout') || message.includes('Timeout')) {
-            results.rtdb = 'FAILED: Timeout - RTDB belum dibuat / databaseURL salah / diblokir jaringan';
-        } else {
-            results.rtdb = code ? `FAILED (${code}): ${message}` : `FAILED: ${message}`;
+    // Test Admin Server Connection (replaces RTDB test)
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        try {
+            const response = await fetch(`${adminApiBase}/health`, {
+                method: 'GET',
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.ok && data.adminReady) {
+                    results.rtdb = `OK (Admin Server - ${data.backend || 'ready'})`;
+                } else if (data.ok && !data.adminReady) {
+                    results.rtdb = `PARTIAL: Server running but not ready - ${data.adminInitError || 'check config'}`;
+                } else {
+                    results.rtdb = 'FAILED: Server returned not OK';
+                }
+            } else {
+                results.rtdb = `FAILED: HTTP ${response.status}`;
+            }
+        } catch (e: any) {
+            clearTimeout(timeoutId);
+            if (e.name === 'AbortError') {
+                results.rtdb = 'FAILED: Admin server timeout - pastikan npm run admin:server berjalan';
+            } else {
+                results.rtdb = `FAILED: Admin server tidak berjalan - jalankan npm run admin:server`;
+            }
         }
+    } catch (e: any) {
+        results.rtdb = `FAILED: ${e.message}`;
     }
 
     return results;
@@ -336,14 +347,19 @@ export const testDatabasePermissions = async (): Promise<{ firestore: string; rt
 // Delete User
 export const deleteUser = async (userId: string): Promise<boolean> => {
     try {
-        // Delete from Firestore
-        await withTimeout(deleteDoc(doc(db, USERS_COLLECTION, userId)), 10000, 'Timeout: hapus user terlalu lama');
+        const { error } = await supabase
+            .from(USERS_TABLE)
+            .delete()
+            .eq('id', userId);
 
-        // Delete from RTDB
-        void withTimeout(remove(ref(rtdb, `${RTDB_PATHS.USERS}/${userId}`)), 8000, 'Timeout: hapus RTDB terlalu lama').catch(() => { });
+        if (error) {
+            console.error('Error deleting user:', error);
+            return false;
+        }
 
         return true;
     } catch (error) {
+        console.error('Error deleting user:', error);
         return false;
     }
 };
@@ -378,48 +394,69 @@ export const setUserSubscription = async (
         if (!updated) return false;
 
         // Create subscription record
-        const subscriptionData: Omit<SubscriptionRecord, 'id'> = {
-            userId,
-            userEmail: (userEmail || '').trim().toLowerCase(),
-            planName,
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString(),
-            price,
-            status: 'paid',
-            createdAt: new Date().toISOString()
-        };
+        const { error } = await supabase
+            .from(TRANSACTIONS_TABLE)
+            .insert({
+                user_id: userId,
+                user_email: (userEmail || '').trim().toLowerCase(),
+                plan_name: planName,
+                start_date: startDate.toISOString(),
+                end_date: endDate.toISOString(),
+                price,
+                status: 'paid',
+                created_at: new Date().toISOString()
+            });
 
-        await withTimeout(addDoc(collection(db, SUBSCRIPTIONS_COLLECTION), subscriptionData), 10000, 'Timeout: simpan transaksi terlalu lama');
+        if (error) {
+            console.error('Error creating subscription record:', error);
+            // Don't fail the whole operation if just the record fails
+        }
 
         return true;
     } catch (error) {
+        console.error('Error setting subscription:', error);
         return false;
     }
 };
 
+// Subscribe to Subscription Records
 export const subscribeToSubscriptionRecords = (callback: (records: SubscriptionRecord[]) => void) => {
-    const refCol = collection(db, SUBSCRIPTIONS_COLLECTION);
-    const q = query(refCol, orderBy('createdAt', 'desc'));
-
     let stopped = false;
+    let inFlight = false;
 
     const fetchOnce = async () => {
-        if (stopped) return;
+        if (stopped || inFlight) return;
+        inFlight = true;
         try {
-            const snapshot = await withTimeout(getDocs(q), 10000, 'Timeout: ambil transaksi terlalu lama');
-            const records: SubscriptionRecord[] = [];
-            snapshot.forEach((docSnap) => {
-                const data: any = docSnap.data();
-                records.push({
-                    ...data,
-                    id: docSnap.id,
-                    createdAt: data?.createdAt?.toDate?.()?.toISOString?.() || data?.createdAt
-                } as SubscriptionRecord);
-            });
+            const { data, error } = await supabase
+                .from(TRANSACTIONS_TABLE)
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('Error fetching transactions:', error);
+                callback([]);
+                return;
+            }
+
+            const records: SubscriptionRecord[] = (data || []).map((row: any) => ({
+                id: row.id,
+                userId: row.user_id,
+                userEmail: row.user_email || '',
+                planName: row.plan_name || '',
+                startDate: row.start_date || '',
+                endDate: row.end_date || '',
+                price: row.price || 0,
+                status: row.status || 'pending',
+                createdAt: row.created_at || ''
+            }));
+
             callback(records);
         } catch (error) {
             console.error('Error fetching transactions:', error);
             callback([]);
+        } finally {
+            inFlight = false;
         }
     };
 
@@ -455,6 +492,7 @@ export const removeUserSubscription = async (userId: string): Promise<boolean> =
         });
         return updated;
     } catch (error) {
+        console.error('Error removing subscription:', error);
         return false;
     }
 };

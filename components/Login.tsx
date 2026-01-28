@@ -69,11 +69,15 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setError(null);
 
     try {
-      const { error: googleError } = await signInWithGoogle();
+      const { user, error: googleError } = await signInWithGoogle();
       if (googleError) throw new Error(googleError);
-      // Google OAuth will redirect, so we don't need to call onLogin here
+      if (user) {
+        onLogin(user);
+        navigate('/', { replace: true });
+      }
     } catch (err: any) {
       setError(err.message || 'Gagal login dengan Google');
+    } finally {
       setLoading(false);
     }
   };

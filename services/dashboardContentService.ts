@@ -1,9 +1,7 @@
-// Dashboard Content Service - Kelola konten teks dan styling dashboard
-import { doc, getDoc, setDoc } from 'firebase/firestore/lite';
-import { db, COLLECTIONS } from './firebase';
+// Dashboard Content Service - Migrated to Supabase
+import { supabase } from './supabaseService';
 
-const SETTINGS_COLLECTION = COLLECTIONS.SETTINGS;
-const DASHBOARD_CONTENT_DOC = 'dashboard_content';
+const SETTINGS_KEY = 'dashboard_content';
 
 // Dashboard Content Settings Interface
 export interface DashboardContentSettings {
@@ -52,37 +50,41 @@ export const DEFAULT_DASHBOARD_CONTENT: DashboardContentSettings = {
 // Get dashboard content settings
 export const getDashboardContentSettings = async (): Promise<DashboardContentSettings> => {
     try {
-        const docRef = doc(db, SETTINGS_COLLECTION, DASHBOARD_CONTENT_DOC);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-            return { ...DEFAULT_DASHBOARD_CONTENT, ...docSnap.data() } as DashboardContentSettings;
+        const { data, error } = await supabase
+            .from('settings')
+            .select('value')
+            .eq('key', SETTINGS_KEY)
+            .single();
+
+        if (error || !data) {
+            return DEFAULT_DASHBOARD_CONTENT;
         }
-        return DEFAULT_DASHBOARD_CONTENT;
+
+        return { ...DEFAULT_DASHBOARD_CONTENT, ...(data.value as object) } as DashboardContentSettings;
     } catch (error) {
         console.error('Error getting dashboard content settings:', error);
         return DEFAULT_DASHBOARD_CONTENT;
     }
 };
 
-// Subscribe to dashboard content changes (polling-based for lite SDK)
+// Subscribe to dashboard content changes (polling-based)
 export const subscribeToDashboardContent = (
     callback: (settings: DashboardContentSettings) => void
 ) => {
-    const docRef = doc(db, SETTINGS_COLLECTION, DASHBOARD_CONTENT_DOC);
     let stopped = false;
+    let inFlight = false;
 
     const fetchOnce = async () => {
-        if (stopped) return;
+        if (stopped || inFlight) return;
+        inFlight = true;
         try {
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-                callback({ ...DEFAULT_DASHBOARD_CONTENT, ...docSnap.data() } as DashboardContentSettings);
-            } else {
-                callback(DEFAULT_DASHBOARD_CONTENT);
-            }
+            const settings = await getDashboardContentSettings();
+            if (!stopped) callback(settings);
         } catch (error) {
             console.error('Error subscribing to dashboard content:', error);
-            callback(DEFAULT_DASHBOARD_CONTENT);
+            if (!stopped) callback(DEFAULT_DASHBOARD_CONTENT);
+        } finally {
+            inFlight = false;
         }
     };
 
@@ -101,16 +103,27 @@ export const saveDashboardContentSettings = async (
     updatedBy?: string
 ): Promise<boolean> => {
     try {
-        const docRef = doc(db, SETTINGS_COLLECTION, DASHBOARD_CONTENT_DOC);
-        await setDoc(
-            docRef,
-            {
-                ...settings,
-                updatedAt: new Date().toISOString(),
-                updatedBy: updatedBy || 'admin'
-            },
-            { merge: true }
-        );
+        const current = await getDashboardContentSettings();
+        const merged = {
+            ...current,
+            ...settings,
+            updatedAt: new Date().toISOString(),
+            updatedBy: updatedBy || 'admin'
+        };
+
+        const { error } = await supabase
+            .from('settings')
+            .upsert({
+                key: SETTINGS_KEY,
+                value: merged,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'key' });
+
+        if (error) {
+            console.error('Error saving dashboard content settings:', error);
+            return false;
+        }
+
         return true;
     } catch (error) {
         console.error('Error saving dashboard content settings:', error);

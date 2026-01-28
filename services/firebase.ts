@@ -198,7 +198,8 @@ export interface TexaUser {
 }
 
 const ADMIN_EMAILS = [
-  'teknoaiglobal.adm@gmail.com'
+  'teknoaiglobal.adm@gmail.com',
+  'teknoaiglobal@gmail.com'
 ];
 
 const normalizeEmail = (email: string) => (email || '').toLowerCase().trim();

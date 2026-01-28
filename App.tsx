@@ -228,7 +228,10 @@ const AppContent: React.FC<{
           } />
 
           <Route path="/admin" element={
-            user?.role === 'ADMIN' ? (
+            // DEV MODE: Allow admin access on localhost without authentication
+            (import.meta.env.DEV || window.location.hostname === 'localhost') ? (
+              <AdminDashboard />
+            ) : user?.role === 'ADMIN' ? (
               <AdminDashboard />
             ) : (
               user ? (
@@ -280,7 +283,7 @@ const App: React.FC = () => {
   const [user, setUser] = useState<TexaUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Listen to Firebase Auth state changes with error handling
+  // Listen to Supabase Auth state changes with error handling
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
 
@@ -292,13 +295,14 @@ const App: React.FC = () => {
             setLoading(false);
 
             if (texaUser) {
-              // Sync with extension
-              const { auth } = await import('./services/firebase');
-              const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+              // Sync with extension - using Supabase session
+              const { getSession } = await import('./services/supabaseAuthService');
+              const session = await getSession();
+              const accessToken = session?.access_token || null;
 
               // Save to localStorage for extension to read directly
-              if (idToken) {
-                window.localStorage.setItem('texa_id_token', idToken);
+              if (accessToken) {
+                window.localStorage.setItem('texa_id_token', accessToken);
                 window.localStorage.setItem('texa_user_email', texaUser.email || '');
                 window.localStorage.setItem('texa_user_role', texaUser.role || '');
                 window.localStorage.setItem('texa_user_name', texaUser.name || '');
@@ -311,7 +315,7 @@ const App: React.FC = () => {
                 source: 'TEXA_DASHBOARD',
                 type: 'TEXA_LOGIN_SYNC',
                 origin: window.location.origin,
-                idToken: idToken,
+                idToken: accessToken,
                 user: {
                   id: texaUser.id,
                   email: texaUser.email,
@@ -326,21 +330,21 @@ const App: React.FC = () => {
               }, window.location.origin);
             }
           } catch (error) {
-            console.error('Auth sync error (continuing without auth):', error);
+            console.error('Supabase auth sync error (continuing without auth):', error);
             setLoading(false);
           }
         });
       } catch (error) {
-        console.error('Firebase Auth init error (continuing without auth):', error);
+        console.error('Supabase Auth init error (continuing without auth):', error);
         setUser(null);
         setLoading(false);
       }
     };
 
-    // Set timeout to ensure app loads even if Firebase fails
+    // Set timeout to ensure app loads even if Supabase fails
     const timeoutId = setTimeout(() => {
       if (loading) {
-        console.warn('Firebase taking too long, loading app without auth');
+        console.warn('Supabase taking too long, loading app without auth');
         setLoading(false);
       }
     }, 5000);

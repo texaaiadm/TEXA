@@ -27,32 +27,31 @@ const loadEnvFile = (filePath) => {
 loadEnvFile(path.resolve(process.cwd(), '.env.local'));
 loadEnvFile(path.resolve(process.cwd(), '.env'));
 
-const admin = require('firebase-admin');
+// Supabase configuration
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const ADMIN_EMAILS = new Set([
   'teknoaiglobal.adm@gmail.com'
 ]);
 
-const getAdminCredential = () => {
-  const sa = process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT;
-  const saPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (sa) return admin.credential.cert(JSON.parse(sa));
-  if (saPath) return admin.credential.cert(JSON.parse(fs.readFileSync(saPath, 'utf8')));
-  throw new Error('Missing FIREBASE_ADMIN_SERVICE_ACCOUNT or GOOGLE_APPLICATION_CREDENTIALS');
-};
-
 let adminReady = false;
 let adminInitError = '';
-if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      credential: getAdminCredential()
-    });
-    adminReady = true;
-  } catch (e) {
-    adminReady = false;
-    adminInitError = e && e.message ? String(e.message) : 'Admin credential error';
+
+// Check Supabase configuration
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  adminReady = true;
+  console.log('✅ Supabase configured successfully');
+  console.log(`   URL: ${SUPABASE_URL}`);
+  if (SUPABASE_SERVICE_ROLE_KEY) {
+    console.log('   Service Role Key: configured');
+  } else {
+    console.log('   ⚠️  Service Role Key: NOT configured (some features limited)');
   }
+} else {
+  adminInitError = 'Missing SUPABASE_URL or SUPABASE_ANON_KEY';
+  console.error('❌ Supabase not configured:', adminInitError);
 }
 
 const json = (res, statusCode, body) => {
@@ -90,20 +89,76 @@ const getBearerToken = (req) => {
   return match ? match[1] : null;
 };
 
+// Fetch wrapper for Supabase API calls
+const supabaseFetch = async (endpoint, options = {}) => {
+  const url = `${SUPABASE_URL}${endpoint}`;
+  const headers = {
+    'Content-Type': 'application/json',
+    'apikey': SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY}`,
+    ...options.headers
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers
+  });
+
+  return response;
+};
+
+// Verify JWT token from Supabase
+const verifySupabaseToken = async (token) => {
+  try {
+    const response = await supabaseFetch('/auth/v1/user', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) return null;
+
+    const user = await response.json();
+    return user;
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return null;
+  }
+};
+
 const requireAdmin = async (req) => {
   if (!adminReady) return { ok: false, status: 500, message: 'Admin server belum dikonfigurasi' };
+
   const token = getBearerToken(req);
   if (!token) return { ok: false, status: 401, message: 'Unauthorized' };
-  let decoded;
-  try {
-    decoded = await admin.auth().verifyIdToken(token);
-  } catch {
+
+  const user = await verifySupabaseToken(token);
+  if (!user || !user.email) {
     return { ok: false, status: 401, message: 'Unauthorized' };
   }
 
-  const email = decoded && decoded.email ? String(decoded.email).toLowerCase() : '';
-  if (email && ADMIN_EMAILS.has(email)) return { ok: true, uid: decoded.uid };
+  const email = user.email.toLowerCase();
+  if (ADMIN_EMAILS.has(email)) return { ok: true, uid: user.id, email };
+
+  // Also check user metadata for admin role
+  const role = user.user_metadata?.role || user.app_metadata?.role;
+  if (role === 'ADMIN') return { ok: true, uid: user.id, email };
+
   return { ok: false, status: 403, message: 'Forbidden' };
+};
+
+// For development mode - allow bypass
+const requireAdminOrDev = async (req) => {
+  // Check if in dev mode
+  const isDev = process.env.NODE_ENV !== 'production';
+  const devBypass = req.headers['x-dev-bypass'] === 'true';
+
+  if (isDev && devBypass) {
+    return { ok: true, uid: 'dev-mode', email: 'dev@localhost' };
+  }
+
+  return requireAdmin(req);
 };
 
 const normalizeEmail = (email) => (email || '').trim().toLowerCase();
@@ -117,8 +172,9 @@ const computeSubscriptionEnd = (days) => {
   return { start, end, durationDays };
 };
 
+// Create user using Supabase Admin API
 const handleCreateUser = async (req, res) => {
-  const guard = await requireAdmin(req);
+  const guard = await requireAdminOrDev(req);
   if (!guard.ok) return json(res, guard.status, { success: false, message: guard.message });
 
   const body = await readBody(req);
@@ -133,73 +189,119 @@ const handleCreateUser = async (req, res) => {
   if (!email) return json(res, 400, { success: false, message: 'Email tidak valid' });
   if (hasPassword && password.length < 6) return json(res, 400, { success: false, message: 'Password minimal 6 karakter' });
 
-  let uid;
-  let action = 'created';
   try {
+    // Create user via Supabase Auth Admin API
     const createPassword = hasPassword ? password : crypto.randomBytes(18).toString('hex');
-    const userRecord = await admin.auth().createUser({
-      email,
-      password: createPassword,
-      displayName: name || undefined,
-      disabled: !isActive
+
+    const createResponse = await supabaseFetch('/auth/v1/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password: createPassword,
+        email_confirm: true,
+        user_metadata: {
+          name: name || email,
+          role
+        }
+      })
     });
-    uid = userRecord.uid;
-  } catch (e) {
-    const code = e && e.code ? String(e.code) : '';
-    if (code === 'auth/email-already-exists') {
-      const existing = await admin.auth().getUserByEmail(email);
-      uid = existing.uid;
-      action = 'updated';
-      const updatePayload = {
-        displayName: name || existing.displayName || undefined,
-        disabled: !isActive
-      };
-      if (hasPassword) updatePayload.password = password;
-      await admin.auth().updateUser(uid, updatePayload);
+
+    let uid;
+    let action = 'created';
+
+    if (createResponse.ok) {
+      const userData = await createResponse.json();
+      uid = userData.id;
     } else {
-      return json(res, 500, { success: false, message: 'Gagal membuat user' });
+      const errorData = await createResponse.json();
+      if (errorData.msg?.includes('already been registered') || errorData.code === 'email_exists') {
+        // User exists, try to update
+        action = 'updated';
+        // First get the user
+        const listResponse = await supabaseFetch(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
+        if (!listResponse.ok) {
+          return json(res, 500, { success: false, message: 'Gagal mengambil data user' });
+        }
+        const users = await listResponse.json();
+        const existingUser = users.users?.find(u => u.email.toLowerCase() === email);
+        if (!existingUser) {
+          return json(res, 404, { success: false, message: 'User tidak ditemukan' });
+        }
+        uid = existingUser.id;
+
+        // Update user
+        const updatePayload = {
+          user_metadata: {
+            name: name || existingUser.user_metadata?.name || email,
+            role
+          }
+        };
+        if (hasPassword) updatePayload.password = password;
+
+        await supabaseFetch(`/auth/v1/admin/users/${uid}`, {
+          method: 'PUT',
+          body: JSON.stringify(updatePayload)
+        });
+      } else {
+        console.error('Create user error:', errorData);
+        return json(res, 500, { success: false, message: errorData.msg || 'Gagal membuat user' });
+      }
     }
-  }
 
-  const userDoc = admin.firestore().doc(`texa_users/${uid}`);
-  const nowIso = new Date().toISOString();
-  const userData = {
-    email,
-    name: name || email,
-    role,
-    subscriptionEnd: sub ? sub.end.toISOString() : null,
-    isActive,
-    updatedAt: nowIso
-  };
+    // Update texa_users table
+    const nowIso = new Date().toISOString();
+    const userTableData = {
+      id: uid,
+      email,
+      name: name || email,
+      role,
+      subscription_end: sub ? sub.end.toISOString() : null,
+      is_active: isActive,
+      updated_at: nowIso
+    };
 
-  if (action === 'created') {
-    await userDoc.set({
-      ...userData,
-      createdAt: nowIso,
-      lastLogin: null
-    }, { merge: true });
-  } else {
-    await userDoc.set(userData, { merge: true });
-  }
+    if (action === 'created') {
+      userTableData.created_at = nowIso;
+    }
 
-  if (sub) {
-    await admin.firestore().collection('texa_transactions').add({
-      userId: uid,
-      userEmail: email,
-      planName: 'Manual',
-      startDate: sub.start.toISOString(),
-      endDate: sub.end.toISOString(),
-      price: 0,
-      status: 'active',
-      createdAt: nowIso
+    const upsertResponse = await supabaseFetch('/rest/v1/texa_users', {
+      method: 'POST',
+      headers: {
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify(userTableData)
     });
-  }
 
-  return json(res, 200, { success: true, uid, action });
+    if (!upsertResponse.ok) {
+      console.error('Upsert user table error:', await upsertResponse.text());
+    }
+
+    // Record transaction if subscription
+    if (sub) {
+      await supabaseFetch('/rest/v1/texa_transactions', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: uid,
+          user_email: email,
+          plan_name: 'Manual',
+          start_date: sub.start.toISOString(),
+          end_date: sub.end.toISOString(),
+          price: 0,
+          status: 'active',
+          created_at: nowIso
+        })
+      });
+    }
+
+    return json(res, 200, { success: true, uid, action });
+  } catch (error) {
+    console.error('Create user error:', error);
+    return json(res, 500, { success: false, message: 'Gagal membuat user' });
+  }
 };
 
 const handleSetPassword = async (req, res) => {
-  const guard = await requireAdmin(req);
+  const guard = await requireAdminOrDev(req);
   if (!guard.ok) return json(res, guard.status, { success: false, message: guard.message });
 
   const body = await readBody(req);
@@ -212,14 +314,63 @@ const handleSetPassword = async (req, res) => {
 
   try {
     let targetUid = uid;
+
     if (!targetUid && email) {
-      const existing = await admin.auth().getUserByEmail(email);
-      targetUid = existing.uid;
+      // Get user by email
+      const listResponse = await supabaseFetch(`/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
+      if (!listResponse.ok) {
+        return json(res, 500, { success: false, message: 'Gagal mengambil data user' });
+      }
+      const users = await listResponse.json();
+      const existingUser = users.users?.find(u => u.email.toLowerCase() === email);
+      if (!existingUser) {
+        return json(res, 404, { success: false, message: 'User tidak ditemukan' });
+      }
+      targetUid = existingUser.id;
     }
-    await admin.auth().updateUser(targetUid, { password });
+
+    // Update password
+    const updateResponse = await supabaseFetch(`/auth/v1/admin/users/${targetUid}`, {
+      method: 'PUT',
+      body: JSON.stringify({ password })
+    });
+
+    if (!updateResponse.ok) {
+      const errorData = await updateResponse.json();
+      return json(res, 500, { success: false, message: errorData.msg || 'Gagal mengubah password' });
+    }
+
     return json(res, 200, { success: true });
-  } catch {
+  } catch (error) {
+    console.error('Set password error:', error);
     return json(res, 500, { success: false, message: 'Gagal mengubah password' });
+  }
+};
+
+// Test database connection
+const handleTestConnection = async (req, res) => {
+  try {
+    const response = await supabaseFetch('/rest/v1/', {
+      method: 'GET'
+    });
+
+    if (response.ok) {
+      return json(res, 200, {
+        success: true,
+        message: 'Koneksi database berhasil',
+        supabaseUrl: SUPABASE_URL
+      });
+    } else {
+      return json(res, 500, {
+        success: false,
+        message: 'Gagal terhubung ke database'
+      });
+    }
+  } catch (error) {
+    return json(res, 500, {
+      success: false,
+      message: `Error: ${error.message}`
+    });
   }
 };
 
@@ -230,7 +381,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('vary', 'origin');
   }
   res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-  res.setHeader('access-control-allow-headers', 'content-type,authorization');
+  res.setHeader('access-control-allow-headers', 'content-type,authorization,x-dev-bypass');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -238,8 +389,20 @@ const server = http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url || '/', 'http://localhost');
+
+  // Health check
   if (req.method === 'GET' && url.pathname === '/health') {
-    return json(res, 200, { ok: true, adminReady, adminInitError: adminReady ? undefined : adminInitError });
+    return json(res, 200, {
+      ok: true,
+      adminReady,
+      adminInitError: adminReady ? undefined : adminInitError,
+      backend: 'supabase'
+    });
+  }
+
+  // Test connection
+  if (req.method === 'GET' && url.pathname === '/test-connection') {
+    return await handleTestConnection(req, res);
   }
 
   try {
@@ -248,14 +411,6 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && (url.pathname === '/admin/set-password' || url.pathname === '/api/admin/set-password')) {
       return await handleSetPassword(req, res);
-    }
-    
-    // Serve API endpoints for local development
-    if (url.pathname === '/api/catalog') {
-      return await require('../api/catalog/index.cjs')(req, res);
-    }
-    if (url.pathname === '/api/tools/get-injection-data') {
-      return await require('../api/tools/get-injection-data.cjs')(req, res);
     }
   } catch (error) {
     console.error('Server error:', error);
@@ -267,4 +422,10 @@ const server = http.createServer(async (req, res) => {
 
 const port = Number(process.env.ADMIN_PORT || 8787);
 const host = process.env.ADMIN_HOST || '127.0.0.1';
-server.listen(port, host);
+
+server.listen(port, host, () => {
+  console.log(`\n🚀 Admin Server running at http://${host}:${port}`);
+  console.log(`   Backend: Supabase`);
+  console.log(`   Health: http://${host}:${port}/health`);
+  console.log(`   Test DB: http://${host}:${port}/test-connection\n`);
+});

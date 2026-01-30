@@ -2,9 +2,12 @@
 // POST /api/tokopay/create-order
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import CryptoJS from 'crypto-js';
+import { createClient } from '@supabase/supabase-js';
 
-// TokoPay Config
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) : null;
+
 const TOKOPAY_CONFIG = {
     merchantId: process.env.TOKOPAY_MERCHANT_ID || 'M250828KEAYY483',
     secretKey: process.env.TOKOPAY_SECRET_KEY || 'b3bb79b23b82ed33a54927dbaac95d8a70e19de7f5d47a613d1db4d32776125c',
@@ -52,7 +55,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const tokopayResult = await tokopayResponse.json();
 
         if (tokopayResult.status === 'Success') {
-            // Return success response with payment details
+            if (supabase && userId && userEmail) {
+                try {
+                    const now = new Date().toISOString();
+                    const insertData: any = {
+                        ref_id: refId,
+                        user_id: userId,
+                        user_email: userEmail,
+                        type: type || 'subscription',
+                        item_id: itemId || '',
+                        item_name: itemName || '',
+                        duration: Number.isFinite(Number(duration)) ? Number(duration) : 0,
+                        nominal,
+                        payment_method: metode,
+                        status: 'pending',
+                        tokopay_trx_id: tokopayResult.data.trx_id,
+                        pay_url: tokopayResult.data.pay_url,
+                        total_bayar: tokopayResult.data.total_bayar,
+                        total_diterima: tokopayResult.data.total_diterima,
+                        created_at: now,
+                        updated_at: now
+                    };
+                    const { error } = await supabase.from('orders').insert(insertData);
+                    if (error) {
+                        console.error('Error saving order to Supabase:', error);
+                    }
+                } catch (e) {
+                    console.error('Supabase order insert error:', e);
+                }
+            }
+
             return res.status(200).json({
                 success: true,
                 data: {

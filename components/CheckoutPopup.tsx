@@ -8,6 +8,7 @@ import {
     formatIDR,
     DEFAULT_SETTINGS
 } from '../services/supabaseSubscriptionService';
+import { getSession } from '../services/supabaseAuthService';
 
 interface CheckoutPopupProps {
     tool: AITool;
@@ -18,7 +19,7 @@ interface CheckoutPopupProps {
 const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) => {
     const [settings, setSettings] = useState<SubscriptionSettings>(DEFAULT_SETTINGS);
     const [selectedPackage, setSelectedPackage] = useState<string>('');
-    const [selectedTier, setSelectedTier] = useState<string>('');
+    const [selectedDuration, setSelectedDuration] = useState<7 | 14 | 30>(7);
     const [purchaseType, setPurchaseType] = useState<'individual' | 'subscription'>('individual');
 
     useEffect(() => {
@@ -37,40 +38,50 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
         }
     }, [settings.packages]);
 
-    // Set default selected tier to the popular one
+    // Build per-tool pricing tiers from tool properties
+    const toolPricingTiers = [
+        { duration: 7 as const, name: '7 Hari', price: tool.price7Days || 0 },
+        { duration: 14 as const, name: '14 Hari', price: tool.price14Days || 0 },
+        { duration: 30 as const, name: '30 Hari', price: tool.price30Days || 0 }
+    ].filter(t => t.price > 0);
+
+    // Auto-select first available tier if current selection has no price
     useEffect(() => {
-        const tiers = settings.perToolDurationTiers || [];
-        const popularTier = tiers.find(t => t.popular && t.active);
-        if (popularTier) {
-            setSelectedTier(popularTier.id);
-        } else if (tiers.length > 0) {
-            const activeTier = tiers.find(t => t.active);
-            if (activeTier) setSelectedTier(activeTier.id);
+        if (toolPricingTiers.length > 0) {
+            const currentTier = toolPricingTiers.find(t => t.duration === selectedDuration);
+            if (!currentTier) {
+                setSelectedDuration(toolPricingTiers[0].duration);
+            }
         }
-    }, [settings.perToolDurationTiers]);
+    }, [tool.price7Days, tool.price14Days, tool.price30Days]);
 
     if (!isOpen) return null;
-
-    // Get active duration tiers
-    const activeTiers = (settings.perToolDurationTiers || []).filter(t => t.active);
 
     // Get active packages
     const activePackages = settings.packages.filter(p => p.active);
 
     // Get selected tier details
-    const currentTier = activeTiers.find(t => t.id === selectedTier);
+    const currentTier = toolPricingTiers.find(t => t.duration === selectedDuration);
 
-    const handleIndividualPurchase = () => {
+    const handleIndividualPurchase = async () => {
         if (!currentTier) return;
+
+        // Check if user is logged in
+        const session = await getSession();
+        if (!session?.user) {
+            alert('Silakan login terlebih dahulu untuk melanjutkan pembelian');
+            window.location.hash = '/?login=true';
+            onClose();
+            return;
+        }
 
         // Redirect to internal payment page with TokoPay integration
         const params = new URLSearchParams({
             type: 'individual',
             itemId: tool.id,
             itemName: tool.name,
-            amount: String(currentTier.discountPrice || currentTier.price),
+            amount: String(currentTier.price),
             duration: String(currentTier.duration),
-            tierId: currentTier.id,
             tierName: currentTier.name
         });
 
@@ -78,9 +89,18 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
         onClose();
     };
 
-    const handleSubscriptionPurchase = () => {
+    const handleSubscriptionPurchase = async () => {
         const pkg = settings.packages.find(p => p.id === selectedPackage);
         if (!pkg) return;
+
+        // Check if user is logged in
+        const session = await getSession();
+        if (!session?.user) {
+            alert('Silakan login terlebih dahulu untuk melanjutkan pembelian');
+            window.location.hash = '/?login=true';
+            onClose();
+            return;
+        }
 
         // Redirect to internal payment page with TokoPay integration
         const params = new URLSearchParams({
@@ -132,8 +152,8 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
 
                 {/* Content */}
                 <div className="p-6 space-y-5">
-                    {/* Individual Purchase Option with Duration Tiers */}
-                    {settings.enablePerToolPurchase !== false && activeTiers.length > 0 && (
+                    {/* Individual Purchase Option with Per-Tool Duration Tiers */}
+                    {toolPricingTiers.length > 0 && (
                         <div
                             className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${purchaseType === 'individual'
                                 ? 'border-emerald-500 bg-emerald-500/10'
@@ -150,25 +170,24 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
                                 <span className="text-slate-400 text-sm">- Hanya {tool.name}</span>
                             </div>
 
-                            {/* Duration Tier Options */}
+                            {/* Per-Tool Duration Tier Options */}
                             <div className="grid grid-cols-3 gap-2 mb-4">
-                                {activeTiers.map(tier => {
-                                    const isSelected = selectedTier === tier.id && purchaseType === 'individual';
-                                    const finalPrice = tier.discountPrice || tier.price;
+                                {toolPricingTiers.map(tier => {
+                                    const isSelected = selectedDuration === tier.duration && purchaseType === 'individual';
                                     return (
                                         <div
-                                            key={tier.id}
+                                            key={tier.duration}
                                             className={`p-3 rounded-xl text-center transition-all cursor-pointer relative ${isSelected
                                                 ? 'bg-emerald-500/30 border-2 border-emerald-500 shadow-lg shadow-emerald-500/20'
                                                 : 'bg-white/5 border border-white/10 hover:bg-white/10'
                                                 }`}
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                setSelectedTier(tier.id);
+                                                setSelectedDuration(tier.duration);
                                                 setPurchaseType('individual');
                                             }}
                                         >
-                                            {tier.popular && (
+                                            {tier.duration === 30 && (
                                                 <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-amber-500 text-white text-[8px] font-bold rounded-full shadow-lg">
                                                     BEST
                                                 </span>
@@ -177,13 +196,8 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
                                                 {tier.name}
                                             </p>
                                             <p className="text-emerald-400 font-black text-lg mt-1">
-                                                {formatIDR(finalPrice)}
+                                                {formatIDR(tier.price)}
                                             </p>
-                                            {tier.discountPrice && (
-                                                <p className="text-slate-500 line-through text-[10px]">
-                                                    {formatIDR(tier.price)}
-                                                </p>
-                                            )}
                                         </div>
                                     );
                                 })}
@@ -199,10 +213,18 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
                                         onClick={handleIndividualPurchase}
                                         className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2"
                                     >
-                                        🛒 Beli Sekarang - {formatIDR(currentTier.discountPrice || currentTier.price)}
+                                        🛒 Beli Sekarang - {formatIDR(currentTier.price)}
                                     </button>
                                 </>
                             )}
+                        </div>
+                    )}
+
+                    {/* No pricing message if no tiers set */}
+                    {toolPricingTiers.length === 0 && (
+                        <div className="p-4 rounded-2xl border-2 border-amber-500/50 bg-amber-500/10 text-center">
+                            <p className="text-amber-400 font-bold">⚠️ Harga belum diatur untuk tool ini</p>
+                            <p className="text-slate-400 text-sm mt-1">Silakan pilih paket langganan di bawah</p>
                         </div>
                     )}
 

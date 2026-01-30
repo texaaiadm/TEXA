@@ -161,7 +161,7 @@ const AdminDashboard: React.FC = () => {
   const [manualPasswordConfirm, setManualPasswordConfirm] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
-  const [dbStatus, setDbStatus] = useState<{ firestore: string; rtdb: string } | null>(null);
+  const [dbStatus, setDbStatus] = useState<{ supabase: string } | null>(null);
   const [extensionSettings, setExtensionSettings] = useState<ExtensionSettings>(DEFAULT_EXTENSION_SETTINGS);
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(DEFAULT_THEME_SETTINGS);
   const [themeSyncedSettings, setThemeSyncedSettings] = useState<ThemeSettings>(DEFAULT_THEME_SETTINGS);
@@ -206,14 +206,28 @@ const AdminDashboard: React.FC = () => {
     }));
   };
 
-  // Subscribe to users on mount
+  // Subscribe to users on mount with timeout fallback
   useEffect(() => {
+    let loadingTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // Timeout after 10 seconds to prevent infinite loading
+    loadingTimeout = setTimeout(() => {
+      if (loading) {
+        console.warn('AdminDashboard: User data loading timeout, showing empty state');
+        setLoading(false);
+      }
+    }, 10000);
+
     const unsubscribe = subscribeToUsers((fetchedUsers) => {
+      if (loadingTimeout) clearTimeout(loadingTimeout);
       setUsers(fetchedUsers);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -679,11 +693,11 @@ const AdminDashboard: React.FC = () => {
         15000,
         'Timeout: test koneksi database terlalu lama'
       );
-      setDbStatus(result);
-      if (result.firestore === 'OK' && result.rtdb === 'OK') {
-        showToast('Koneksi Database Normal', 'success');
+      setDbStatus({ supabase: result.supabase || 'OK' });
+      if (result.supabase === 'OK') {
+        showToast('Koneksi Supabase Normal', 'success');
       } else {
-        showToast('Terjadi Masalah Koneksi Database', 'error');
+        showToast('Terjadi Masalah Koneksi Supabase', 'error');
       }
     } catch (err: any) {
       showToast(err?.message || 'Gagal test koneksi database', 'error');
@@ -781,9 +795,7 @@ const AdminDashboard: React.FC = () => {
             </button>
             {dbStatus && (
               <span className="text-xs flex gap-2">
-                <span className={dbStatus.firestore === 'OK' ? 'text-emerald-400' : 'text-red-400'}>Firestore: {dbStatus.firestore}</span>
-                <span className="text-slate-600">|</span>
-                <span className={dbStatus.rtdb === 'OK' ? 'text-emerald-400' : 'text-red-400'}>RTDB: {dbStatus.rtdb}</span>
+                <span className={dbStatus.supabase === 'OK' ? 'text-emerald-400' : 'text-red-400'}>Supabase: {dbStatus.supabase}</span>
               </span>
             )}
           </div>

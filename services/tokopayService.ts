@@ -1,8 +1,4 @@
 // TokoPay Payment Gateway Service
-// API Documentation: https://docs.tokopay.id
-
-import { doc, getDoc, collection, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore/lite';
-import { db } from './firebase';
 import CryptoJS from 'crypto-js';
 
 // Collection names
@@ -150,49 +146,6 @@ export const createTokopayOrder = async (
             success: false,
             error: error.message || 'Network error'
         };
-    }
-};
-
-// Save Order to Firestore
-export const saveOrderToFirestore = async (order: TokopayOrder): Promise<string> => {
-    try {
-        const ordersRef = collection(db, ORDERS_COLLECTION);
-        const docRef = await addDoc(ordersRef, {
-            ...order,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        });
-        return docRef.id;
-    } catch (error) {
-        console.error('Error saving order:', error);
-        throw error;
-    }
-};
-
-// Update Order Status
-export const updateOrderStatus = async (
-    refId: string,
-    status: 'paid' | 'expired' | 'failed',
-    additionalData?: Partial<TokopayOrder>
-): Promise<boolean> => {
-    try {
-        // Find order by refId
-        const q = doc(db, ORDERS_COLLECTION, refId);
-        const orderDoc = await getDoc(q);
-
-        if (orderDoc.exists()) {
-            await updateDoc(q, {
-                status,
-                ...additionalData,
-                updatedAt: serverTimestamp(),
-                ...(status === 'paid' ? { paidAt: serverTimestamp() } : {})
-            });
-            return true;
-        }
-        return false;
-    } catch (error) {
-        console.error('Error updating order:', error);
-        return false;
     }
 };
 

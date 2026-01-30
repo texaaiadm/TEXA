@@ -3,16 +3,17 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import CryptoJS from 'crypto-js';
+import { createClient } from '@supabase/supabase-js';
 
-// TokoPay Config
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) : null;
+
 const TOKOPAY_CONFIG = {
     merchantId: process.env.TOKOPAY_MERCHANT_ID || 'M250828KEAYY483',
     secretKey: process.env.TOKOPAY_SECRET_KEY || 'b3bb79b23b82ed33a54927dbaac95d8a70e19de7f5d47a613d1db4d32776125c',
     webhookIp: '178.128.104.179'
 };
-
-// Firebase Admin SDK for server-side operations
-// Note: You need to set FIREBASE_SERVICE_ACCOUNT env var with the service account JSON
 
 interface TokopayWebhookPayload {
     data: {
@@ -37,6 +38,94 @@ function verifySignature(merchantId: string, refId: string, receivedSignature: s
     const signatureString = `${merchantId}:${TOKOPAY_CONFIG.secretKey}:${refId}`;
     const expectedSignature = CryptoJS.MD5(signatureString).toString();
     return expectedSignature.toLowerCase() === receivedSignature.toLowerCase();
+}
+
+// Activate subscription for user
+async function activateSubscription(userId: string, durationDays: number): Promise<boolean> {
+    if (!supabase) return false;
+
+    try {
+        // Get current user's subscription_end
+        const { data: user } = await supabase
+            .from('users')
+            .select('subscription_end')
+            .eq('id', userId)
+            .single();
+
+        // Calculate new subscription end
+        let baseDate = new Date();
+        if (user?.subscription_end) {
+            const currentEnd = new Date(user.subscription_end);
+            // If subscription is still active, extend from current end
+            if (currentEnd > baseDate) {
+                baseDate = currentEnd;
+            }
+        }
+
+        // Add duration days
+        const newSubscriptionEnd = new Date(baseDate);
+        newSubscriptionEnd.setDate(newSubscriptionEnd.getDate() + durationDays);
+
+        // Update user's subscription_end
+        const { error } = await supabase
+            .from('users')
+            .update({
+                subscription_end: newSubscriptionEnd.toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', userId);
+
+        if (error) {
+            console.error('Error activating subscription:', error);
+            return false;
+        }
+
+        console.log(`✅ Subscription activated for user ${userId} until ${newSubscriptionEnd.toISOString()}`);
+        return true;
+    } catch (e) {
+        console.error('Subscription activation error:', e);
+        return false;
+    }
+}
+
+// Activate individual tool access for user
+async function activateIndividualTool(userId: string, toolId: string, durationDays: number, orderRefId: string): Promise<boolean> {
+    if (!supabase) return false;
+
+    try {
+        // Calculate access end date
+        const accessEnd = new Date();
+        accessEnd.setDate(accessEnd.getDate() + durationDays);
+
+        // Check if user_tools table exists by trying to query it
+        // If it fails, we'll create the entry anyway (table should exist)
+
+        // Insert or update user_tools entry
+        const { error } = await supabase
+            .from('user_tools')
+            .upsert({
+                user_id: userId,
+                tool_id: toolId,
+                access_end: accessEnd.toISOString(),
+                order_ref_id: orderRefId,
+                created_at: new Date().toISOString()
+            }, {
+                onConflict: 'user_id,tool_id',
+                ignoreDuplicates: false
+            });
+
+        if (error) {
+            // If table doesn't exist, log but don't fail
+            console.error('Error activating individual tool (table may not exist):', error);
+            return false;
+        }
+
+        console.log(`✅ Individual tool ${toolId} activated for user ${userId} until ${accessEnd.toISOString()}`);
+        return true;
+    } catch (e) {
+        console.error('Individual tool activation error:', e);
+        return false;
+    }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -74,7 +163,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(200).json({ status: true });
         }
 
-        // Process successful payment
         console.log('Processing successful payment for ref_id:', payload.reff_id);
 
         // Parse reference ID to determine type
@@ -82,17 +170,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const isSubscription = refId.startsWith('SUB');
         const isIndividual = refId.startsWith('TXA');
 
-        // TODO: Update order status in Firebase
-        // TODO: Activate subscription or tool access for user
-        // 
-        // This requires Firebase Admin SDK initialization with service account
-        // For now, we'll just log the successful payment
-        //
-        // Example implementation:
-        // 1. Get order from Firestore using refId
-        // 2. Update order status to 'paid'
-        // 3. If subscription: update user's subscription expiry date
-        // 4. If individual tool: add tool access to user's account
+        if (supabase) {
+            try {
+                const now = new Date().toISOString();
+
+                // First, get the order details to know user_id and duration
+                const { data: order, error: orderFetchError } = await supabase
+                    .from('orders')
+                    .select('*')
+                    .eq('ref_id', refId)
+                    .single();
+
+                if (orderFetchError || !order) {
+                    console.error('Error fetching order:', orderFetchError);
+                } else {
+                    // Update order status to paid
+                    const updateData: any = {
+                        status: 'paid',
+                        tokopay_trx_id: payload.reference,
+                        total_bayar: payload.data.total_dibayar,
+                        total_diterima: payload.data.total_diterima,
+                        payment_method: payload.data.payment_channel,
+                        updated_at: now,
+                        paid_at: now
+                    };
+
+                    const { error: updateError } = await supabase
+                        .from('orders')
+                        .update(updateData)
+                        .eq('ref_id', refId);
+
+                    if (updateError) {
+                        console.error('Error updating order in Supabase:', updateError);
+                    }
+
+                    // ==========================================
+                    // ACTIVATE SUBSCRIPTION OR INDIVIDUAL TOOL
+                    // ==========================================
+
+                    const userId = order.user_id;
+                    const duration = order.duration || 30; // Default 30 days
+                    const itemId = order.item_id;
+
+                    if (isSubscription && userId) {
+                        // Activate subscription - update user's subscription_end
+                        await activateSubscription(userId, duration);
+                        console.log(`📦 Subscription activated: ${duration} days for user ${userId}`);
+                    } else if (isIndividual && userId && itemId) {
+                        // Activate individual tool access
+                        await activateIndividualTool(userId, itemId, duration, refId);
+                        console.log(`🔧 Individual tool ${itemId} activated: ${duration} days for user ${userId}`);
+                    }
+                }
+            } catch (e) {
+                console.error('Supabase order update error:', e);
+            }
+        }
 
         console.log('Payment Success:', {
             refId: payload.reff_id,
@@ -113,3 +246,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ status: true });
     }
 }
+

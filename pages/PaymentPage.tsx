@@ -19,6 +19,7 @@ const PaymentPage: React.FC = () => {
     const [selectedMethod, setSelectedMethod] = useState<string>('QRISREALTIME');
     const [paymentResult, setPaymentResult] = useState<any>(null);
     const [session, setSession] = useState<any>(null);
+    const [paymentStatus, setPaymentStatus] = useState<'pending' | 'paid' | 'checking'>('pending');
 
     // Parse search params from hash URL (works with HashRouter)
     const searchParams = useMemo(() => {
@@ -34,11 +35,16 @@ const PaymentPage: React.FC = () => {
     const amount = parseInt(searchParams.get('amount') || '0');
     const duration = parseInt(searchParams.get('duration') || '30');
 
+    // Dev mode detection
+    const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const apiBaseUrl = isDev ? 'http://127.0.0.1:8787' : '';
+
     // Check if user is logged in
     useEffect(() => {
         const checkSession = async () => {
             const currentSession = await getSession();
             setSession(currentSession);
+            // Always require login for checkout
             if (!currentSession) {
                 navigate('/?login=true');
             }
@@ -46,9 +52,65 @@ const PaymentPage: React.FC = () => {
         checkSession();
     }, [navigate]);
 
+    // Poll for payment status when paymentResult is set
+    useEffect(() => {
+        if (!paymentResult?.refId) {
+            console.log('[Payment] No refId yet, skipping poll');
+            return;
+        }
+        if (paymentStatus === 'paid') {
+            console.log('[Payment] Already paid, skipping poll');
+            return;
+        }
+
+        console.log('[Payment] Starting polling for refId:', paymentResult.refId);
+        setPaymentStatus('checking');
+        let pollCount = 0;
+        const maxPolls = 120; // Poll for up to 6 minutes (3s * 120)
+
+        const pollInterval = setInterval(async () => {
+            pollCount++;
+            console.log('[Payment] Polling attempt', pollCount, 'of', maxPolls);
+
+            if (pollCount > maxPolls) {
+                console.log('[Payment] Max polls reached, stopping');
+                clearInterval(pollInterval);
+                return;
+            }
+
+            try {
+                const url = `${apiBaseUrl}/api/tokopay/check-status?refId=${paymentResult.refId}`;
+                console.log('[Payment] Fetching:', url);
+                const resp = await fetch(url);
+                const data = await resp.json();
+                console.log('[Payment] Response:', data);
+
+                if (data.status === 'paid') {
+                    console.log('[Payment] PAID! Clearing interval');
+                    clearInterval(pollInterval);
+                    setPaymentStatus('paid');
+
+                    // Redirect to dashboard after showing success for 2 seconds
+                    setTimeout(() => {
+                        console.log('[Payment] Redirecting to dashboard');
+                        navigate('/');
+                    }, 2500);
+                }
+            } catch (e) {
+                console.log('[Payment] Poll error:', e);
+            }
+        }, 3000); // Poll every 3 seconds
+
+        return () => {
+            console.log('[Payment] Cleanup - clearing interval');
+            clearInterval(pollInterval);
+        };
+    }, [paymentResult?.refId, paymentStatus, apiBaseUrl, navigate]);
+
     const handlePayment = async () => {
         if (!session?.user) {
             setError('Silakan login terlebih dahulu');
+            navigate('/?login=true');
             return;
         }
 
@@ -58,8 +120,11 @@ const PaymentPage: React.FC = () => {
         try {
             const refId = generateRefId(type, itemId);
 
+            const userId = session.user.id;
+            const userEmail = session.user.email;
+
             // Call our API to create TokoPay order
-            const response = await fetch('/api/tokopay/create-order', {
+            const response = await fetch(`${apiBaseUrl}/api/tokopay/create-order`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -68,8 +133,8 @@ const PaymentPage: React.FC = () => {
                     refId,
                     nominal: amount,
                     metode: selectedMethod,
-                    userId: session.user.id,
-                    userEmail: session.user.email,
+                    userId,
+                    userEmail,
                     type,
                     itemId,
                     itemName,
@@ -80,12 +145,20 @@ const PaymentPage: React.FC = () => {
             const result = await response.json();
 
             if (result.success) {
-                setPaymentResult(result.data);
+                // Save order info to localStorage for success page
+                localStorage.setItem('pendingPayment', JSON.stringify({
+                    refId: result.data.refId,
+                    type,
+                    itemId,
+                    itemName,
+                    duration,
+                    amount,
+                    payUrl: result.data.payUrl,
+                    createdAt: new Date().toISOString()
+                }));
 
-                // If it's e-wallet with checkout URL, redirect immediately
-                if (result.data.checkoutUrl) {
-                    window.location.href = result.data.checkoutUrl;
-                }
+                // Redirect directly to Tokopay payment page
+                window.location.href = result.data.payUrl;
             } else {
                 setError(result.error || 'Gagal membuat pembayaran');
             }
@@ -236,57 +309,80 @@ const PaymentPage: React.FC = () => {
                     {/* Payment Result */}
                     {paymentResult && (
                         <div className="p-6">
-                            <div className="text-center mb-6">
-                                <div className="text-6xl mb-4">✅</div>
-                                <h2 className="text-xl font-black text-white mb-2">Pembayaran Dibuat!</h2>
-                                <p className="text-slate-400 text-sm">Silakan selesaikan pembayaran Anda</p>
-                            </div>
-
-                            {/* QR Code for QRIS */}
-                            {paymentResult.qrLink && (
-                                <div className="text-center mb-6">
-                                    <img
-                                        src={paymentResult.qrLink}
-                                        alt="QRIS Code"
-                                        className="w-48 h-48 mx-auto rounded-xl bg-white p-2"
-                                    />
-                                    <p className="text-slate-400 text-xs mt-2">Scan QR dengan aplikasi e-wallet/banking Anda</p>
+                            {/* Success State - Payment Confirmed */}
+                            {paymentStatus === 'paid' ? (
+                                <div className="text-center py-8">
+                                    <div className="text-7xl mb-4 animate-bounce">🎉</div>
+                                    <h2 className="text-2xl font-black text-emerald-400 mb-2">Pembayaran Berhasil!</h2>
+                                    <p className="text-white font-bold mb-2">{itemName}</p>
+                                    <p className="text-slate-400 text-sm mb-4">Paket Anda sudah aktif selama {duration} hari</p>
+                                    <div className="flex items-center justify-center gap-2 text-slate-500 text-sm">
+                                        <div className="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+                                        Mengalihkan ke dashboard...
+                                    </div>
                                 </div>
+                            ) : (
+                                <>
+                                    {/* Waiting for Payment State */}
+                                    <div className="text-center mb-6">
+                                        <div className="text-6xl mb-4">✅</div>
+                                        <h2 className="text-xl font-black text-white mb-2">Pembayaran Dibuat!</h2>
+                                        <p className="text-slate-400 text-sm">Silakan selesaikan pembayaran Anda</p>
+                                        {paymentStatus === 'checking' && (
+                                            <div className="flex items-center justify-center gap-2 mt-3 text-amber-400 text-xs">
+                                                <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                                                Menunggu konfirmasi pembayaran...
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* QR Code for QRIS */}
+                                    {paymentResult.qrLink && (
+                                        <div className="text-center mb-6">
+                                            <img
+                                                src={paymentResult.qrLink}
+                                                alt="QRIS Code"
+                                                className="w-48 h-48 mx-auto rounded-xl bg-white p-2"
+                                            />
+                                            <p className="text-slate-400 text-xs mt-2">Scan QR dengan aplikasi e-wallet/banking Anda</p>
+                                        </div>
+                                    )}
+
+                                    {/* Virtual Account Number */}
+                                    {paymentResult.nomorVa && (
+                                        <div className="bg-white/5 rounded-xl p-4 mb-4">
+                                            <p className="text-slate-400 text-xs mb-1">Nomor Virtual Account</p>
+                                            <p className="text-2xl font-mono font-bold text-white">{paymentResult.nomorVa}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Amount */}
+                                    <div className="bg-white/5 rounded-xl p-4 mb-6">
+                                        <p className="text-slate-400 text-xs mb-1">Total Bayar</p>
+                                        <p className="text-2xl font-black text-emerald-400">{formatIDR(paymentResult.totalBayar)}</p>
+                                    </div>
+
+                                    {/* Open Payment Page Button */}
+                                    <button
+                                        onClick={openPayUrl}
+                                        className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black transition-all shadow-lg"
+                                    >
+                                        🔗 Buka Halaman Pembayaran
+                                    </button>
+
+                                    <p className="text-center text-slate-500 text-xs mt-4">
+                                        Ref ID: {paymentResult.refId}
+                                    </p>
+                                </>
                             )}
-
-                            {/* Virtual Account Number */}
-                            {paymentResult.nomorVa && (
-                                <div className="bg-white/5 rounded-xl p-4 mb-4">
-                                    <p className="text-slate-400 text-xs mb-1">Nomor Virtual Account</p>
-                                    <p className="text-2xl font-mono font-bold text-white">{paymentResult.nomorVa}</p>
-                                </div>
-                            )}
-
-                            {/* Amount */}
-                            <div className="bg-white/5 rounded-xl p-4 mb-6">
-                                <p className="text-slate-400 text-xs mb-1">Total Bayar</p>
-                                <p className="text-2xl font-black text-emerald-400">{formatIDR(paymentResult.totalBayar)}</p>
-                            </div>
-
-                            {/* Open Payment Page Button */}
-                            <button
-                                onClick={openPayUrl}
-                                className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black transition-all shadow-lg"
-                            >
-                                🔗 Buka Halaman Pembayaran
-                            </button>
-
-                            <p className="text-center text-slate-500 text-xs mt-4">
-                                Ref ID: {paymentResult.refId}
-                            </p>
                         </div>
                     )}
-                </div>
 
-                {/* Security Badge */}
-                <p className="text-center text-slate-500 text-xs mt-4">
-                    🔒 Pembayaran diproses secara aman oleh TokoPay
-                </p>
+                    {/* Security Badge */}
+                    <p className="text-center text-slate-500 text-xs mt-4 mb-4">
+                        🔒 Pembayaran diproses secara aman oleh TokoPay
+                    </p>
+                </div>
             </div>
         </div>
     );

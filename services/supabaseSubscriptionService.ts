@@ -42,6 +42,14 @@ export interface SubscriptionSettings {
     defaultToolDuration?: number;
     updatedAt?: string;
     updatedBy?: string;
+    // Tokopay Configuration
+    tokopayMerchantId?: string;
+    tokopayWebhookUrl?: string;
+    tokopayEnabledMethods?: {
+        qris: boolean;
+        ewallet: string[];  // e.g. ['DANABALANCE', 'OVOBALANCE']
+        bank: string[];     // e.g. ['BCAVA', 'BNIVA']
+    };
 }
 
 export interface SubscriptionPackageLegacy {
@@ -104,7 +112,15 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
         { id: 'tier-30', name: '1 Bulan', duration: 30, price: 45000, discountPrice: 39000, active: true }
     ],
     perToolPopupTitle: 'Beli Akses Tool',
-    perToolPopupDescription: 'Pilih durasi akses untuk tool ini'
+    perToolPopupDescription: 'Pilih durasi akses untuk tool ini',
+    // Default Tokopay Configuration
+    tokopayMerchantId: 'M250828KEAYY483',
+    tokopayWebhookUrl: 'https://digistore.texa.ai/api/callback/tokopay',
+    tokopayEnabledMethods: {
+        qris: true,
+        ewallet: ['DANABALANCE', 'OVOBALANCE', 'SHOPEEPAYBALANCE', 'GOPAYBALANCE'],
+        bank: ['BCAVA', 'BNIVA', 'BRIVA', 'MANDIRIVA', 'PERMATAVA', 'CIMBVA']
+    }
 };
 
 // ============ SUBSCRIPTION SETTINGS FUNCTIONS ============
@@ -264,9 +280,9 @@ export const saveRevenueShareSettings = async (
 };
 
 // ============ SUBSCRIPTION PACKAGES (Table-based) ============
-
-// Subscription Package Interface
-export interface SubscriptionPackage {
+//
+// Subscription Package Interface for database table
+export interface SubscriptionPackageRecord {
     id: string;
     name: string;
     durationDays: number;
@@ -278,14 +294,14 @@ export interface SubscriptionPackage {
 }
 
 // Default subscription packages
-const DEFAULT_PACKAGES: Omit<SubscriptionPackage, 'id' | 'createdAt'>[] = [
+const DEFAULT_PACKAGES: Omit<SubscriptionPackageRecord, 'id' | 'createdAt'>[] = [
     { name: '7 Hari', durationDays: 7, price: 25000, discountPrice: 20000, isActive: true, sortOrder: 0 },
     { name: '2 Minggu', durationDays: 14, price: 45000, discountPrice: 35000, isActive: true, sortOrder: 1 },
     { name: '1 Bulan', durationDays: 30, price: 75000, discountPrice: 55000, isActive: true, sortOrder: 2 }
 ];
 
 // Get all subscription packages
-export const getSubscriptionPackages = async (): Promise<SubscriptionPackage[]> => {
+export const getSubscriptionPackages = async (): Promise<SubscriptionPackageRecord[]> => {
     try {
         const { data, error } = await supabase
             .from('subscription_packages')
@@ -320,7 +336,7 @@ export const getSubscriptionPackages = async (): Promise<SubscriptionPackage[]> 
 };
 
 // Subscribe to subscription packages
-export const subscribeToSubscriptionPackages = (callback: (packages: SubscriptionPackage[]) => void) => {
+export const subscribeToSubscriptionPackages = (callback: (packages: SubscriptionPackageRecord[]) => void) => {
     let stopped = false;
 
     const fetchPackages = async () => {
@@ -366,7 +382,7 @@ export const seedDefaultPackages = async (): Promise<boolean> => {
 };
 
 // Add subscription package
-export const addSubscriptionPackage = async (pkg: Omit<SubscriptionPackage, 'id' | 'createdAt'>): Promise<string | null> => {
+export const addSubscriptionPackage = async (pkg: Omit<SubscriptionPackageRecord, 'id' | 'createdAt'>): Promise<string | null> => {
     try {
         const { data, error } = await supabase
             .from('subscription_packages')
@@ -394,7 +410,7 @@ export const addSubscriptionPackage = async (pkg: Omit<SubscriptionPackage, 'id'
 };
 
 // Update subscription package
-export const updateSubscriptionPackage = async (id: string, updates: Partial<SubscriptionPackage>): Promise<boolean> => {
+export const updateSubscriptionPackage = async (id: string, updates: Partial<SubscriptionPackageRecord>): Promise<boolean> => {
     try {
         const updateData: any = {};
         if (updates.name !== undefined) updateData.name = updates.name;

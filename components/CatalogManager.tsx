@@ -52,10 +52,10 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
         embedVideoUrl: '',
         cookiesData: '',
         apiUrl: '',
-        // Per-tool individual purchase settings
-        individualPrice: 0,
-        individualDuration: 7,
-        individualDiscount: 0
+        // Multi-tier pricing (7 hari, 14 hari, 30 hari)
+        price7Days: 0,
+        price14Days: 0,
+        price30Days: 0
     });
 
     // Toggle for showing advanced extension fields
@@ -100,9 +100,9 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
             embedVideoUrl: '',
             cookiesData: '',
             apiUrl: '',
-            individualPrice: 0,
-            individualDuration: 7,
-            individualDiscount: 0
+            price7Days: 0,
+            price14Days: 0,
+            price30Days: 0
         });
         setSelectedItem(null);
         setShowAdvanced(false);
@@ -128,9 +128,9 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                     embedVideoUrl: item.embedVideoUrl || '',
                     cookiesData: item.cookiesData || '',
                     apiUrl: item.apiUrl || '',
-                    individualPrice: item.individualPrice || 0,
-                    individualDuration: item.individualDuration || 7,
-                    individualDiscount: item.individualDiscount || 0
+                    price7Days: (item as any).price7Days || 0,
+                    price14Days: (item as any).price14Days || 0,
+                    price30Days: (item as any).price30Days || 0
                 });
                 // Show advanced if any extension fields have data
                 if (item.embedVideoUrl || item.cookiesData || item.apiUrl) {
@@ -622,20 +622,54 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                                         </div>
                                     </div>
 
-                                    {/* Price */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Harga/Bulan (IDR) *</label>
-                                        <input
-                                            type="number"
-                                            required
-                                            min="0"
-                                            value={formData.priceMonthly}
-                                            onChange={(e) => setFormData({ ...formData, priceMonthly: parseInt(e.target.value) || 0 })}
-                                            placeholder="50000"
-                                            className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white focus:outline-none focus:border-indigo-500"
-                                        />
-                                        <p className="text-xs text-slate-500 mt-1">Preview: {formatPrice(formData.priceMonthly)}</p>
+                                    {/* Multi-tier Pricing */}
+                                    <div className="border-t border-white/10 pt-4 mt-4">
+                                        <h4 className="text-sm font-bold text-emerald-400 mb-4 flex items-center gap-2">
+                                            💰 Harga per Durasi
+                                        </h4>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">7 Hari</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={formData.price7Days}
+                                                    onChange={(e) => setFormData({ ...formData, price7Days: parseInt(e.target.value) || 0 })}
+                                                    placeholder="15000"
+                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
+                                                />
+                                                <p className="text-[9px] text-slate-500 mt-1">{formatPrice(formData.price7Days)}</p>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">14 Hari</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={formData.price14Days}
+                                                    onChange={(e) => setFormData({ ...formData, price14Days: parseInt(e.target.value) || 0 })}
+                                                    placeholder="25000"
+                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
+                                                />
+                                                <p className="text-[9px] text-slate-500 mt-1">{formatPrice(formData.price14Days)}</p>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">30 Hari</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    value={formData.price30Days}
+                                                    onChange={(e) => setFormData({ ...formData, price30Days: parseInt(e.target.value) || 0 })}
+                                                    placeholder="45000"
+                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
+                                                />
+                                                <p className="text-[9px] text-slate-500 mt-1">{formatPrice(formData.price30Days)}</p>
+                                            </div>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mt-2">
+                                            Harga ini akan tampil di popup pembelian saat user klik Beli
+                                        </p>
                                     </div>
+
 
                                     {/* Status */}
                                     <div>
@@ -662,53 +696,6 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                                                 ✗ Nonaktif
                                             </button>
                                         </div>
-                                    </div>
-
-                                    {/* Per-Tool Individual Pricing */}
-                                    <div className="border-t border-white/10 pt-4 mt-4">
-                                        <h4 className="text-sm font-bold text-emerald-400 mb-4 flex items-center gap-2">
-                                            🛒 Harga Satuan (Eceran)
-                                        </h4>
-                                        <div className="grid grid-cols-3 gap-3">
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Harga Satuan</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    value={formData.individualPrice}
-                                                    onChange={(e) => setFormData({ ...formData, individualPrice: parseInt(e.target.value) || 0 })}
-                                                    placeholder="15000"
-                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Durasi (Hari)</label>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    value={formData.individualDuration}
-                                                    onChange={(e) => setFormData({ ...formData, individualDuration: parseInt(e.target.value) || 7 })}
-                                                    placeholder="7"
-                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Harga Diskon</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    value={formData.individualDiscount}
-                                                    onChange={(e) => setFormData({ ...formData, individualDiscount: parseInt(e.target.value) || 0 })}
-                                                    placeholder="0"
-                                                    className="w-full px-3 py-2.5 bg-black/30 border border-emerald-500/20 rounded-xl text-white text-sm focus:outline-none focus:border-emerald-500"
-                                                />
-                                            </div>
-                                        </div>
-                                        <p className="text-[10px] text-slate-500 mt-2">
-                                            {formData.individualPrice > 0
-                                                ? `Preview: ${formatPrice(formData.individualDiscount || formData.individualPrice)} / ${formData.individualDuration} hari`
-                                                : 'Kosongkan untuk menggunakan harga default dari Pengaturan Subscription'}
-                                        </p>
                                     </div>
 
 

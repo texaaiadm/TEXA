@@ -1,12 +1,13 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Prism from './Prism';
 import {
   signIn,
   signUp,
   signInWithGoogle,
-  TexaUser
+  TexaUser,
+  getCurrentUser
 } from '../services/supabaseAuthService';
 
 interface LoginProps {
@@ -25,6 +26,23 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const isCoarsePointer = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
   const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const showPrism = !(isCoarsePointer || prefersReducedMotion);
+
+  // Check if user is already logged in on mount (handles OAuth redirect)
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await getCurrentUser();
+        if (user) {
+          console.log('✅ User already logged in, redirecting...');
+          onLogin(user);
+          navigate('/', { replace: true });
+        }
+      } catch (e) {
+        // No user logged in, stay on login page
+      }
+    };
+    checkAuth();
+  }, [onLogin, navigate]);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();

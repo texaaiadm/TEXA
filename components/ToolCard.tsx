@@ -250,9 +250,19 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
           <div className="mt-auto pt-4 md:pt-6 border-t border-[var(--glass-border)] flex items-center justify-between">
             <div className="flex flex-col">
               {(() => {
-                const price = tool.individualPrice || settings.defaultToolPrice || 15000;
-                const discount = tool.individualDiscount;
-                const duration = tool.individualDuration || settings.defaultToolDuration || 7;
+                // Use individual tool pricing from catalog (proper null checks)
+                // Priority: individualPrice > priceMonthly > defaultToolPrice > 15000
+                const price = tool.individualPrice != null && tool.individualPrice > 0
+                  ? tool.individualPrice
+                  : (tool.priceMonthly != null && tool.priceMonthly > 0)
+                    ? tool.priceMonthly
+                    : (settings.defaultToolPrice || 15000);
+                const discount = tool.individualDiscount != null && tool.individualDiscount > 0
+                  ? tool.individualDiscount
+                  : undefined;
+                const duration = tool.individualDuration != null && tool.individualDuration > 0
+                  ? tool.individualDuration
+                  : (settings.defaultToolDuration || 7);
                 return (
                   <>
                     <span className="text-[8px] md:text-[10px] text-theme-muted uppercase font-black tracking-widest">Mulai</span>

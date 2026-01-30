@@ -13,6 +13,7 @@ import ToolIframePage from './components/ToolIframePage';
 import Footer from './components/Footer';
 import ErrorBoundary from './components/ErrorBoundary';
 import PaymentPage from './pages/PaymentPage';
+import PaymentSuccessPage from './pages/PaymentSuccessPage';
 import { onAuthChange, signOut as logOut, TexaUser } from './services/supabaseAuthService';
 import { PopupProvider, usePopup } from './services/popupContext';
 import { ThemeProvider } from './services/ThemeContext';
@@ -110,7 +111,8 @@ const AppContent: React.FC<{
   const isLoginPage = location.pathname === '/login';
   const isToketPage = location.pathname === '/toket';
   const isToolIframePage = location.pathname.startsWith('/tool/');
-  const hideHeaderFooter = isAdminPage || isLoginPage || isToketPage || isToolIframePage;
+  const isPaymentPage = location.pathname === '/payment' || location.pathname === '/payment-success';
+  const hideHeaderFooter = isAdminPage || isLoginPage || isToketPage || isToolIframePage || isPaymentPage;
 
   useEffect(() => {
     if (!isAdminPage && previewThemeSettings) setPreviewThemeSettings(null);
@@ -260,6 +262,7 @@ const AppContent: React.FC<{
           <Route path="/tool/:toolId" element={<ToolIframePage user={user} />} />
 
           <Route path="/payment" element={<PaymentPage />} />
+          <Route path="/payment-success" element={<PaymentSuccessPage />} />
         </Routes>
       </main>
 
@@ -286,9 +289,27 @@ const App: React.FC = () => {
   // Listen to Supabase Auth state changes with error handling
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
+    let hasCachedUser = false;
 
     const initAuth = async () => {
       try {
+        // Try to restore user from localStorage cache first for fast UI
+        const cachedUser = window.localStorage.getItem('texa_current_user');
+        if (cachedUser) {
+          try {
+            const parsed = JSON.parse(cachedUser);
+            if (parsed && parsed.id && parsed.email) {
+              setUser(parsed);
+              hasCachedUser = true;
+              // Set loading to false immediately - show UI with cached user
+              // Supabase will update the user in background if needed
+              setLoading(false);
+            }
+          } catch (e) {
+            // Invalid cached user, ignore
+          }
+        }
+
         unsubscribe = onAuthChange(async (texaUser) => {
           try {
             setUser(texaUser);
@@ -328,6 +349,9 @@ const App: React.FC = () => {
                   lastLogin: texaUser.lastLogin
                 }
               }, window.location.origin);
+            } else {
+              // Clear localStorage cache if not logged in
+              window.localStorage.removeItem('texa_current_user');
             }
           } catch (error) {
             console.error('Supabase auth sync error (continuing without auth):', error);
@@ -341,13 +365,13 @@ const App: React.FC = () => {
       }
     };
 
-    // Set timeout to ensure app loads even if Supabase fails
+    // Set timeout to ensure app loads even if Supabase fails (3 seconds is enough)
     const timeoutId = setTimeout(() => {
       if (loading) {
-        console.warn('Supabase taking too long, loading app without auth');
+        console.warn('Supabase taking too long, loading app with cached user if available');
         setLoading(false);
       }
-    }, 5000);
+    }, 3000);
 
     initAuth();
 

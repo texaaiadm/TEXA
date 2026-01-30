@@ -3,41 +3,20 @@
 // SILENT Token Scraping dengan Google Identity
 // =============================================
 
-// Firebase REST API Configuration
-// PRIMARY: Token Vault Firestore (MAIN TOKEN STORAGE)
-const TOKEN_VAULT_CONFIG = {
-    projectId: 'texa-ai',
-    // Direct Firestore endpoint untuk token vault
-    firestoreUrl: 'https://firestore.googleapis.com/v1/projects/texa-ai/databases/(default)/documents/artifacts/my-token-vault/public/data/tokens/google_oauth_user_1',
-    tokenPath: 'artifacts/my-token-vault/public/data/tokens/google_oauth_user_1'
+// Supabase REST API Configuration (Replaced Firebase)
+const SUPABASE_CONFIG = {
+    url: 'https://odivixmsdxjyqeobalzv.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kaXZpeG1zZHhqeXFlb2JhbHp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0Njc5NzIsImV4cCI6MjA4NTA0Mzk3Mn0.m4Ua_wZv2vXN1VhKTsqTo2BGUGxHt9QPUdiyHqfzSTU',
+    tokenTable: 'token_vault'
 };
 
-// BACKUP: RTDB (Secondary storage)
-const FIREBASE_RTDB_BACKUP = {
-    projectId: 'texa-ai',
-    rtdbUrl: 'https://texa-ai-default-rtdb.firebaseio.com',
-    tokenPath: 'texa_tokens/google_oauth_user_1'
-};
-
-// Legacy compatibility
-const FIREBASE_PRIMARY = FIREBASE_RTDB_BACKUP;
-const FIREBASE_BACKUP = FIREBASE_RTDB_BACKUP;
+// Supabase REST API endpoint for token storage
+const SUPABASE_TOKEN_URL = `${SUPABASE_CONFIG.url}/rest/v1/${SUPABASE_CONFIG.tokenTable}`;
 
 const GOOGLE_LABS_URL = 'https://labs.google/fx/tools/flow';
 const GOOGLE_LABS_API = 'https://labs.google/fx/api/tools';
 const TOKEN_REGEX = /ya29\.[a-zA-Z0-9_-]{100,}/g;
 
-function getFirestoreUrl(projectId, path) {
-    return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${path}`;
-}
-
-function getPrimaryRtdbUrl(path) {
-    return `${FIREBASE_PRIMARY.rtdbUrl}/${path}.json`;
-}
-
-function getBackupRtdbUrl(path) {
-    return `${FIREBASE_BACKUP.rtdbUrl}/${path}.json`;
-}
 
 // =============================================
 // OFFSCREEN DOCUMENT MANAGEMENT
@@ -633,7 +612,7 @@ async function extractTokenFromTab(tabId) {
 }
 
 // =============================================
-// TOKEN STORAGE
+// TOKEN STORAGE (Using Supabase REST API)
 // =============================================
 
 async function saveToken(token, source) {
@@ -647,102 +626,106 @@ async function saveToken(token, source) {
         'texa_token_source': source
     });
 
-    // Save to Firebase in background (Token Vault + RTDB Backup)
-    Promise.allSettled([
-        saveTokenToFirestoreVault(token, source, timestamp),
-        saveTokenToRTDBBackup(token, source, timestamp)
-    ]).then(results => {
-        console.log('💾 TEXA: Firestore Vault:', results[0].status, '| RTDB Backup:', results[1].status);
-    });
+    // Save to Supabase in background
+    saveTokenToSupabase(token, source, timestamp)
+        .then(result => {
+            console.log('💾 TEXA: Supabase save:', result.success ? 'OK' : 'FAILED');
+        })
+        .catch(err => {
+            console.log('⚠️ TEXA: Supabase save error:', err.message);
+        });
 
     return true;
 }
 
-// ========== TOKEN VAULT FUNCTIONS - User Specified Format ==========
+// ========== SUPABASE TOKEN FUNCTIONS ==========
 
-// CARA 2: SIMPAN TOKEN DARI EKSTENSI (format sesuai permintaan user)
-async function saveTokenToFirestoreVault(token, source, timestamp) {
-    const url = TOKEN_VAULT_CONFIG.firestoreUrl;
+// SAVE TOKEN to Supabase
+async function saveTokenToSupabase(token, source, timestamp) {
+    const url = `${SUPABASE_TOKEN_URL}?id=eq.google_oauth_user_1`;
 
     const body = {
-        fields: {
-            token: { stringValue: token },
-            id: { stringValue: 'google_oauth_user_1' },
-            updatedAt: { timestampValue: timestamp },
-            source: { stringValue: source },
-            note: { stringValue: 'Disimpan dari Ekstensi' }
-        }
+        id: 'google_oauth_user_1',
+        token: token,
+        source: source,
+        updated_at: timestamp,
+        note: 'Disimpan dari Ekstensi'
     };
 
     try {
+        // Try UPSERT first (update if exists)
         const response = await fetch(url, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                'Prefer': 'return=minimal'
+            },
             body: JSON.stringify(body)
         });
 
-        if (response.ok) {
-            console.log('✅ TEXA: Token saved to Firestore Vault!');
+        if (response.ok || response.status === 201 || response.status === 204) {
+            console.log('✅ TEXA: Token saved to Supabase!');
             return { success: true };
-        } else {
-            throw new Error(`Firestore error: ${response.status}`);
         }
+
+        // If PUT fails, try POST (insert)
+        if (response.status === 404 || response.status === 400) {
+            const insertResponse = await fetch(SUPABASE_TOKEN_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_CONFIG.anonKey,
+                    'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                    'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (insertResponse.ok || insertResponse.status === 201) {
+                console.log('✅ TEXA: Token inserted to Supabase!');
+                return { success: true };
+            }
+        }
+
+        throw new Error(`Supabase error: ${response.status}`);
     } catch (error) {
-        console.error('❌ TEXA: Firestore Vault save error:', error.message);
+        console.error('❌ TEXA: Supabase save error:', error.message);
         throw error;
     }
 }
 
-// CARA 1: AMBIL TOKEN DARI DB (format sesuai permintaan user)
-async function getTokenFromFirestoreVault() {
-    const url = TOKEN_VAULT_CONFIG.firestoreUrl;
-
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Data tidak ditemukan');
-
-        const data = await response.json();
-        // Struktur JSON Firestore: { fields: { token: { stringValue: "..." } } }
-        const myToken = data.fields?.token?.stringValue;
-        const updatedAt = data.fields?.updatedAt?.timestampValue;
-
-        if (myToken) {
-            console.log('✅ TEXA: Token loaded from Firestore Vault');
-            return { success: true, token: myToken, source: 'firestore_vault', updatedAt };
-        }
-
-        return { success: false, error: 'Token field not found' };
-    } catch (error) {
-        console.error('❌ TEXA: Firestore Vault read error:', error.message);
-        return { success: false, error: error.message };
-    }
-}
-
-// Backup: Save to RTDB (secondary storage)
-async function saveTokenToRTDBBackup(token, source, timestamp) {
-    const url = `${FIREBASE_RTDB_BACKUP.rtdbUrl}/${FIREBASE_RTDB_BACKUP.tokenPath}.json`;
+// GET TOKEN from Supabase
+async function getTokenFromSupabase() {
+    const url = `${SUPABASE_TOKEN_URL}?id=eq.google_oauth_user_1&select=*`;
 
     try {
         const response = await fetch(url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                token,
-                id: 'google_oauth_user_1',
-                updatedAt: timestamp,
-                source
-            })
+            method: 'GET',
+            headers: {
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`
+            }
         });
 
-        if (response.ok) {
-            console.log('✅ TEXA: Token saved to RTDB Backup');
-            return { success: true };
-        } else {
-            throw new Error(`RTDB error: ${response.status}`);
+        if (!response.ok) throw new Error('Data tidak ditemukan');
+
+        const data = await response.json();
+
+        if (data && data.length > 0 && data[0].token) {
+            console.log('✅ TEXA: Token loaded from Supabase');
+            return {
+                success: true,
+                token: data[0].token,
+                source: 'supabase',
+                updatedAt: data[0].updated_at
+            };
         }
+
+        return { success: false, error: 'Token not found in Supabase' };
     } catch (error) {
-        console.error('⚠️ TEXA: RTDB Backup save error:', error.message);
-        // Don't throw - backup failures shouldn't block main save
+        console.error('❌ TEXA: Supabase read error:', error.message);
         return { success: false, error: error.message };
     }
 }
@@ -760,39 +743,17 @@ async function getToken() {
         }
     }
 
-    // Priority 2: Try FIRESTORE VAULT (Primary Token Storage)
-    console.log('🔄 TEXA: Checking Firestore Vault...');
-    const vaultResult = await getTokenFromFirestoreVault();
-    if (vaultResult.success && vaultResult.token) {
+    // Priority 2: Try Supabase (Primary Token Storage)
+    console.log('🔄 TEXA: Checking Supabase...');
+    const supabaseResult = await getTokenFromSupabase();
+    if (supabaseResult.success && supabaseResult.token) {
         // Update local cache
         await chrome.storage.local.set({
-            'texa_bearer_token': vaultResult.token,
-            'texa_token_updated': vaultResult.updatedAt,
-            'texa_token_source': 'firestore_vault'
+            'texa_bearer_token': supabaseResult.token,
+            'texa_token_updated': supabaseResult.updatedAt,
+            'texa_token_source': 'supabase'
         });
-        return vaultResult;
-    }
-
-    // Priority 3: Try RTDB Backup
-    console.log('🔄 TEXA: Checking RTDB Backup...');
-    try {
-        const url = `${FIREBASE_RTDB_BACKUP.rtdbUrl}/${FIREBASE_RTDB_BACKUP.tokenPath}.json`;
-        const response = await fetch(url);
-        if (response.ok) {
-            const data = await response.json();
-            if (data?.token) {
-                // Update local cache
-                await chrome.storage.local.set({
-                    'texa_bearer_token': data.token,
-                    'texa_token_updated': data.updatedAt,
-                    'texa_token_source': 'rtdb_backup'
-                });
-                console.log('✅ TEXA: Token from RTDB Backup');
-                return { success: true, token: data.token, source: 'rtdb_backup', updatedAt: data.updatedAt };
-            }
-        }
-    } catch (e) {
-        console.log('⚠️ TEXA: RTDB Backup fetch failed:', e.message);
+        return supabaseResult;
     }
 
     // Fallback: Return stale cached token if available

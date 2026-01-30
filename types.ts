@@ -1,7 +1,9 @@
 
-// Re-export TexaUser from firebase service for backward compatibility
-export type { TexaUser as User } from './services/firebase';
-export type { UserRole } from './services/firebase';
+// Re-export TexaUser from Supabase auth service (Firebase removed)
+export type { TexaUser as User } from './services/supabaseAuthService';
+
+// UserRole type definition (was previously from firebase.ts)
+export type UserRole = 'ADMIN' | 'MEMBER';
 
 export interface AITool {
   id: string;
@@ -17,14 +19,14 @@ export interface AITool {
   embedVideoUrl?: string;      // URL untuk embedded video (YouTube, dll)
   cookiesData?: string;        // JSON string cookies untuk inject oleh extension
   apiUrl?: string;             // API URL untuk fetch data oleh extension
-  // Per-tool individual purchase settings
-  individualPrice?: number;       // Harga satuan (Rp)
-  individualDuration?: number;    // Durasi akses satuan (hari), default 7
-  individualDiscount?: number;    // Harga diskon satuan (optional)
+  // Multi-tier pricing (7 hari, 14 hari, 30 hari)
+  price7Days?: number;
+  price14Days?: number;
+  price30Days?: number;
 }
 
 export interface AuthState {
-  user: import('./services/firebase').TexaUser | null;
+  user: import('./services/supabaseAuthService').TexaUser | null;
   isAuthenticated: boolean;
 }
 
@@ -34,3 +36,4 @@ export interface ToolCookie {
   data: string; // Encrypted simulation
   lastUpdated: string;
 }
+

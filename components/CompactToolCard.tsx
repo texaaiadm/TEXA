@@ -157,9 +157,19 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
                         <div>
                             <span className="text-[8px] text-zinc-500 dark:text-zinc-500 uppercase tracking-widest font-medium">Mulai</span>
                             {(() => {
-                                const price = tool.individualPrice || settings.defaultToolPrice || 15000;
-                                const discount = tool.individualDiscount;
-                                const duration = tool.individualDuration || settings.defaultToolDuration || 7;
+                                // Use individual tool pricing from catalog (proper null checks)
+                                // Priority: individualPrice > priceMonthly > defaultToolPrice > 15000
+                                const price = tool.individualPrice != null && tool.individualPrice > 0
+                                    ? tool.individualPrice
+                                    : (tool.priceMonthly != null && tool.priceMonthly > 0)
+                                        ? tool.priceMonthly
+                                        : (settings.defaultToolPrice || 15000);
+                                const discount = tool.individualDiscount != null && tool.individualDiscount > 0
+                                    ? tool.individualDiscount
+                                    : undefined;
+                                const duration = tool.individualDuration != null && tool.individualDuration > 0
+                                    ? tool.individualDuration
+                                    : (settings.defaultToolDuration || 7);
                                 return (
                                     <>
                                         <div className="flex items-baseline gap-1">

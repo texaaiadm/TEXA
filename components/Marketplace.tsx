@@ -10,6 +10,7 @@ import {
   DEFAULT_DASHBOARD_CONTENT,
   subscribeToDashboardContent
 } from '../services/supabaseDashboardService';
+import { getUserToolAccesses, UserToolAccess } from '../services/userToolsService';
 
 
 // Fallback mock tools (used when Firestore is empty)
@@ -88,6 +89,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('compact');
   const [content, setContent] = useState<DashboardContentSettings>(DEFAULT_DASHBOARD_CONTENT);
+  const [userToolAccesses, setUserToolAccesses] = useState<UserToolAccess[]>([]);
 
   // Subscribe to dashboard content settings
   useEffect(() => {
@@ -96,6 +98,25 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch user's individual tool accesses
+  useEffect(() => {
+    if (!user?.id) {
+      setUserToolAccesses([]);
+      return;
+    }
+
+    const fetchAccesses = async () => {
+      const accesses = await getUserToolAccesses(user.id);
+      setUserToolAccesses(accesses);
+    };
+
+    fetchAccesses();
+
+    // Refresh every 30 seconds
+    const intervalId = setInterval(fetchAccesses, 30000);
+    return () => clearInterval(intervalId);
+  }, [user?.id]);
 
   // Subscribe to catalog from Firestore
   useEffect(() => {
@@ -121,6 +142,15 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
   const hasActiveSubscription = user?.subscriptionEnd
     ? new Date(user.subscriptionEnd) > new Date()
     : false;
+
+  // Helper function to check access for a specific tool
+  const hasAccessToTool = (toolId: string): boolean => {
+    // Has subscription = access to all tools
+    if (hasActiveSubscription) return true;
+
+    // Check individual tool purchase
+    return userToolAccesses.some(access => access.tool_id === toolId);
+  };
 
   return (
     <section id="marketplace" className="py-4 md:py-8 scroll-mt-24">
@@ -204,7 +234,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
             <CompactToolCard
               key={tool.id}
               tool={tool}
-              hasAccess={hasActiveSubscription}
+              hasAccess={hasAccessToTool(tool.id)}
             />
           ))}
         </div>
@@ -217,7 +247,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
             <ToolCard
               key={tool.id}
               tool={tool}
-              hasAccess={hasActiveSubscription}
+              hasAccess={hasAccessToTool(tool.id)}
             />
           ))}
         </div>

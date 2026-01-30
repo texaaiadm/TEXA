@@ -3,6 +3,7 @@ import { Navigate, useParams } from 'react-router-dom';
 import { TexaUser } from '../services/supabaseAuthService';
 import { getCatalogItem, CatalogItem } from '../services/supabaseCatalogService';
 import { isUrlIframeAllowed } from '../utils/iframePolicy';
+import { canAccessTool } from '../services/userToolsService';
 
 const hasActiveSubscription = (user: TexaUser | null) => {
   if (!user?.subscriptionEnd) return false;
@@ -13,9 +14,49 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
   const { toolId } = useParams();
   const [tool, setTool] = useState<CatalogItem | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
+  const [accessChecked, setAccessChecked] = useState(false);
 
-  const allowed = useMemo(() => hasActiveSubscription(user), [user]);
+  // Check subscription first (instant check)
+  const hasSubscription = useMemo(() => hasActiveSubscription(user), [user]);
 
+  // Check tool access (subscription OR individual purchase)
+  useEffect(() => {
+    let stopped = false;
+    const checkAccess = async () => {
+      if (!user || !toolId) {
+        setHasAccess(false);
+        setAccessChecked(true);
+        return;
+      }
+
+      // If user has subscription, they have access to all tools
+      if (hasSubscription) {
+        setHasAccess(true);
+        setAccessChecked(true);
+        return;
+      }
+
+      // Check individual tool access
+      try {
+        const access = await canAccessTool(user, toolId);
+        if (!stopped) {
+          setHasAccess(access);
+          setAccessChecked(true);
+        }
+      } catch (error) {
+        console.error('Error checking tool access:', error);
+        if (!stopped) {
+          setHasAccess(false);
+          setAccessChecked(true);
+        }
+      }
+    };
+    checkAccess();
+    return () => { stopped = true; };
+  }, [user, toolId, hasSubscription]);
+
+  // Fetch tool data
   useEffect(() => {
     let stopped = false;
     const run = async () => {
@@ -33,7 +74,20 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
   }, [toolId]);
 
   if (!user) return <Navigate to="/login" replace />;
-  if (!allowed) return <Navigate to="/" replace />;
+
+  // Wait for access check before redirecting
+  if (!accessChecked) {
+    return (
+      <div className="flex items-center justify-center min-h-[70vh]">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-400">Memeriksa akses...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasAccess) return <Navigate to="/" replace />;
 
   if (loading) {
     return (
@@ -91,3 +145,4 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
 };
 
 export default ToolIframePage;
+

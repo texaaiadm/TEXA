@@ -197,6 +197,27 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
             let resolved = false;
             let checkPopupInterval: ReturnType<typeof setInterval> | null = null;
 
+            // Helper function to close popup and focus main window
+            const closePopupAndFocus = () => {
+                // Try multiple times to close popup (some browsers need delay)
+                const tryClose = () => {
+                    try {
+                        if (popup && !popup.closed) {
+                            popup.close();
+                        }
+                    } catch (e) { /* ignore COOP errors */ }
+                };
+
+                tryClose();
+                setTimeout(tryClose, 100);
+                setTimeout(tryClose, 500);
+
+                // Focus main window
+                try {
+                    window.focus();
+                } catch (e) { /* ignore */ }
+            };
+
             // Listen for auth state change
             const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
                 if (resolved) return;
@@ -206,8 +227,8 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                     subscription.unsubscribe();
                     if (checkPopupInterval) clearInterval(checkPopupInterval);
 
-                    // Try to close popup (may fail due to COOP but that's ok)
-                    try { popup.close(); } catch (e) { /* ignore */ }
+                    // Close popup and focus main window
+                    closePopupAndFocus();
 
                     const texaUser = await mapSupabaseUser(session.user);
 
@@ -232,6 +253,7 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                         resolved = true;
                         subscription.unsubscribe();
                         clearInterval(checkPopupInterval!);
+                        window.focus(); // Focus main window if user cancelled
                         resolve({ user: null, error: 'Login dibatalkan' });
                     }
                 } catch (e) {
@@ -245,7 +267,7 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                     resolved = true;
                     subscription.unsubscribe();
                     if (checkPopupInterval) clearInterval(checkPopupInterval);
-                    try { popup.close(); } catch (e) { /* ignore */ }
+                    closePopupAndFocus();
                     resolve({ user: null, error: 'Login timeout. Silakan coba lagi.' });
                 }
             }, 300000);
@@ -292,30 +314,58 @@ export const getCurrentUser = async (): Promise<TexaUser | null> => {
 
 // Listen to auth state changes
 export const onAuthChange = (callback: AuthCallback): (() => void) => {
-    // Get initial user
-    getCurrentUser().then(user => {
-        callback(user);
+    let hasCalledBack = false;
+
+    // Get initial session from localStorage (instant, no network request)
+    // This is the key fix - getSession() reads from localStorage, getUser() makes a network call
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (session?.user && !hasCalledBack) {
+            hasCalledBack = true;
+            const user = await mapSupabaseUser(session.user);
+            callback(user);
+        }
+    }).catch((error) => {
+        // Handle AbortError gracefully - don't treat as fatal
+        if (error?.name === 'AbortError') {
+            console.log('Session fetch was aborted, will retry via auth state change');
+        } else {
+            console.error('Error getting initial session:', error);
+        }
     });
 
     // Subscribe to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
         async (event: AuthChangeEvent, session: Session | null) => {
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                const user = await mapSupabaseUser(session?.user || null);
+            console.log('Auth state change:', event, session?.user?.email);
 
-                // Ensure user profile exists
+            // Handle all session-related events including page reload
+            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
                 if (session?.user) {
-                    await supabase.from('users').upsert({
-                        id: session.user.id,
-                        email: session.user.email,
-                        name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
-                        photo_url: session.user.user_metadata?.avatar_url,
-                        last_login: new Date().toISOString()
-                    }, { onConflict: 'id' });
-                }
+                    hasCalledBack = true;
+                    const user = await mapSupabaseUser(session.user);
 
-                callback(user);
+                    // Ensure user profile exists (with error handling)
+                    try {
+                        await supabase.from('users').upsert({
+                            id: session.user.id,
+                            email: session.user.email,
+                            name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
+                            photo_url: session.user.user_metadata?.avatar_url,
+                            last_login: new Date().toISOString()
+                        }, { onConflict: 'id' });
+                    } catch (error) {
+                        // Don't fail auth if profile update fails
+                        console.warn('Failed to update user profile:', error);
+                    }
+
+                    callback(user);
+                } else if (event === 'INITIAL_SESSION' && !hasCalledBack) {
+                    // INITIAL_SESSION with no session means no stored session
+                    hasCalledBack = true;
+                    callback(null);
+                }
             } else if (event === 'SIGNED_OUT') {
+                hasCalledBack = true;
                 callback(null);
             }
         }

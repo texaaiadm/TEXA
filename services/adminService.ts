@@ -3,7 +3,7 @@ import { supabase } from './supabaseService';
 import { TexaUser } from './supabaseAuthService';
 
 // Table names for Supabase
-const USERS_TABLE = 'texa_users';
+const USERS_TABLE = 'users';
 const TRANSACTIONS_TABLE = 'texa_transactions';
 
 // Subscription Plan Interface
@@ -57,11 +57,10 @@ const rowToTexaUser = (row: any): TexaUser => ({
     name: row.name || row.email || '',
     role: row.role || 'MEMBER',
     isActive: row.is_active !== false,
-    subscriptionEnd: row.subscription_end || null,
+    subscriptionEnd: row.subscription_end || undefined,
     createdAt: row.created_at || new Date().toISOString(),
-    updatedAt: row.updated_at || null,
-    lastLogin: row.last_login || null,
-    photoUrl: row.photo_url || null
+    lastLogin: row.last_login || undefined,
+    photoURL: row.photo_url || undefined
 });
 
 // Get All Users (Realtime subscription via polling)
@@ -237,7 +236,7 @@ export const updateUser = async (userId: string, data: Partial<TexaUser>): Promi
         if (data.isActive !== undefined) updateData.is_active = data.isActive;
         if (data.subscriptionEnd !== undefined) updateData.subscription_end = data.subscriptionEnd;
         if (data.email !== undefined) updateData.email = data.email;
-        if (data.photoUrl !== undefined) updateData.photo_url = data.photoUrl;
+        if (data.photoURL !== undefined) updateData.photo_url = data.photoURL;
         if (data.lastLogin !== undefined) updateData.last_login = data.lastLogin;
 
         const { error } = await supabase
@@ -257,19 +256,18 @@ export const updateUser = async (userId: string, data: Partial<TexaUser>): Promi
     }
 };
 
-// Test Database Permissions - Updated for Supabase
-export const testDatabasePermissions = async (): Promise<{ firestore: string; rtdb: string }> => {
-    const results = { firestore: 'Testing...', rtdb: 'Testing...' };
+// Test Database Permissions - Supabase Only
+export const testDatabasePermissions = async (): Promise<{ supabase: string }> => {
+    const results = { supabase: 'Testing...' };
 
     // Get Supabase URL from environment
     const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
     const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
-    const adminApiBase = (import.meta as any).env?.VITE_ADMIN_API_BASE || (import.meta.env.PROD ? '' : 'http://127.0.0.1:8787');
 
-    // Test Supabase Connection (replaces Firestore test)
+    // Test Supabase Connection
     try {
         if (!supabaseUrl || !supabaseKey) {
-            results.firestore = 'FAILED: Supabase not configured';
+            results.supabase = 'FAILED: Supabase not configured';
         } else {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -287,58 +285,21 @@ export const testDatabasePermissions = async (): Promise<{ firestore: string; rt
                 clearTimeout(timeoutId);
 
                 if (response.ok) {
-                    results.firestore = 'OK (Supabase)';
+                    results.supabase = 'OK';
                 } else {
-                    results.firestore = `FAILED: HTTP ${response.status}`;
+                    results.supabase = `FAILED: HTTP ${response.status}`;
                 }
             } catch (e: any) {
                 clearTimeout(timeoutId);
                 if (e.name === 'AbortError') {
-                    results.firestore = 'FAILED: Connection timeout';
+                    results.supabase = 'FAILED: Connection timeout';
                 } else {
-                    results.firestore = `FAILED: ${e.message}`;
+                    results.supabase = `FAILED: ${e.message}`;
                 }
             }
         }
     } catch (e: any) {
-        results.firestore = `FAILED: ${e.message}`;
-    }
-
-    // Test Admin Server Connection (replaces RTDB test)
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-        try {
-            const response = await fetch(`${adminApiBase}/health`, {
-                method: 'GET',
-                signal: controller.signal
-            });
-
-            clearTimeout(timeoutId);
-
-            if (response.ok) {
-                const data = await response.json();
-                if (data.ok && data.adminReady) {
-                    results.rtdb = `OK (Admin Server - ${data.backend || 'ready'})`;
-                } else if (data.ok && !data.adminReady) {
-                    results.rtdb = `PARTIAL: Server running but not ready - ${data.adminInitError || 'check config'}`;
-                } else {
-                    results.rtdb = 'FAILED: Server returned not OK';
-                }
-            } else {
-                results.rtdb = `FAILED: HTTP ${response.status}`;
-            }
-        } catch (e: any) {
-            clearTimeout(timeoutId);
-            if (e.name === 'AbortError') {
-                results.rtdb = 'FAILED: Admin server timeout - pastikan npm run admin:server berjalan';
-            } else {
-                results.rtdb = `FAILED: Admin server tidak berjalan - jalankan npm run admin:server`;
-            }
-        }
-    } catch (e: any) {
-        results.rtdb = `FAILED: ${e.message}`;
+        results.supabase = `FAILED: ${e.message}`;
     }
 
     return results;

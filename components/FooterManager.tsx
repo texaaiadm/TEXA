@@ -7,7 +7,7 @@ import {
     DEFAULT_FOOTER_SETTINGS,
     FooterSettings,
     SocialMediaLink
-} from '../services/footerService';
+} from '../services/supabaseFooterService';
 
 interface FooterManagerProps {
     showToast: (message: string, type: 'success' | 'error') => void;
@@ -42,9 +42,8 @@ export default function FooterManager({ showToast }: FooterManagerProps) {
         setError(null);
 
         try {
-            // Add timeout protection (10 seconds)
             const timeoutPromise = new Promise<null>((_, reject) => {
-                setTimeout(() => reject(new Error('Request timeout - Firebase may be unavailable')), 10000);
+                setTimeout(() => reject(new Error('Request timeout - database may be unavailable')), 10000);
             });
 
             const data = await Promise.race([
@@ -82,7 +81,7 @@ export default function FooterManager({ showToast }: FooterManagerProps) {
                 setMapsUrl(DEFAULT_FOOTER_SETTINGS.mapsUrl);
                 setMapsEmbedUrl(DEFAULT_FOOTER_SETTINGS.mapsEmbedUrl);
                 setError(null);
-                showToast('⚠️ No data returned from Firebase, using defaults', 'error');
+                showToast('⚠️ No data returned from database, using defaults', 'error');
             }
         } catch (err: any) {
             console.error('Error loading footer settings:', err);
@@ -226,15 +225,15 @@ export default function FooterManager({ showToast }: FooterManagerProps) {
                 <div className="text-center space-y-2">
                     <h3 className="text-xl font-bold text-white">Failed to Load Footer Settings</h3>
                     <p className="text-slate-400 max-w-md">
-                        {error || 'Could not connect to Firebase'}
+                        {error || 'Could not connect to database'}
                     </p>
                     <div className="glass rounded-xl p-4 mt-4 max-w-lg">
                         <p className="text-sm text-slate-300 mb-2">⚠️ <strong>Possible Issues:</strong></p>
                         <ul className="text-xs text-slate-400 text-left space-y-1">
-                            <li>• Firebase quota exceeded (check Firebase Console)</li>
+                            <li>• Database quota exceeded (check Supabase project)</li>
                             <li>• Network connection issues</li>
-                            <li>• Firebase Realtime Database not configured</li>
-                            <li>• Security rules blocking access</li>
+                            <li>• Database not configured correctly</li>
+                            <li>• Access rules blocking requests</li>
                         </ul>
                     </div>
                 </div>

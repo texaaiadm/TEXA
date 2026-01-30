@@ -1,14 +1,17 @@
 // Footer Component - Customizable footer with social media, contact, and maps
 import { useEffect, useState } from 'react';
-import { subscribeToFooterSettings, FooterSettings, SocialMediaLink } from '../services/supabaseFooterService';
+import { subscribeToFooterSettings, FooterSettings, SocialMediaLink, DEFAULT_FOOTER_SETTINGS } from '../services/supabaseFooterService';
 
 export default function Footer() {
-    const [settings, setSettings] = useState<FooterSettings | null>(null);
+    // Use DEFAULT_FOOTER_SETTINGS as initial state so footer is always visible
+    const [settings, setSettings] = useState<FooterSettings>(DEFAULT_FOOTER_SETTINGS);
     const [currentUser, setCurrentUser] = useState<{ name: string; role: string } | null>(null);
 
     useEffect(() => {
         const unsubscribe = subscribeToFooterSettings((newSettings) => {
-            setSettings(newSettings);
+            if (newSettings) {
+                setSettings(newSettings);
+            }
         });
 
         // Get current user from localStorage (set by App.tsx)
@@ -24,8 +27,6 @@ export default function Footer() {
 
         return () => unsubscribe();
     }, []);
-
-    if (!settings) return null;
 
     const activeSocialMedia = settings.socialMedia.filter(sm => sm.isActive && sm.url);
 

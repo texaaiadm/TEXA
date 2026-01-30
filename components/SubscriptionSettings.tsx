@@ -18,7 +18,9 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
     const [settings, setSettings] = useState<SubscriptionSettings>(DEFAULT_SETTINGS);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeSection, setActiveSection] = useState<'urls' | 'packages' | 'perTool' | 'ui' | 'features'>('urls');
+    const [activeSection, setActiveSection] = useState<'urls' | 'packages' | 'ui' | 'features' | 'tokopay'>('urls');
+    const [testingConnection, setTestingConnection] = useState(false);
+    const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [editingPackage, setEditingPackage] = useState<SubscriptionPackage | null>(null);
     const [showPackageModal, setShowPackageModal] = useState(false);
 
@@ -73,7 +75,7 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
         setShowPackageModal(true);
     };
 
-    const savePackage = () => {
+    const savePackage = async () => {
         if (!packageForm.name || packageForm.price <= 0) {
             showToast('Isi nama dan harga paket', 'error');
             return;
@@ -88,15 +90,31 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
             packages = [...settings.packages, packageForm];
         }
 
-        setSettings({ ...settings, packages });
+        const newSettings = { ...settings, packages };
+        setSettings(newSettings);
         setShowPackageModal(false);
-        showToast(editingPackage ? 'Paket diperbarui!' : 'Paket ditambahkan!', 'success');
+
+        // Auto-save to database
+        const success = await saveSubscriptionSettings(newSettings);
+        if (success) {
+            showToast(editingPackage ? 'Paket berhasil diperbarui! ✅' : 'Paket berhasil ditambahkan! ✅', 'success');
+        } else {
+            showToast('Gagal menyimpan paket ke database', 'error');
+        }
     };
 
-    const deletePackage = (pkgId: string) => {
+    const deletePackage = async (pkgId: string) => {
         const packages = settings.packages.filter(pkg => pkg.id !== pkgId);
-        setSettings({ ...settings, packages });
-        showToast('Paket dihapus!', 'success');
+        const newSettings = { ...settings, packages };
+        setSettings(newSettings);
+
+        // Auto-save to database
+        const success = await saveSubscriptionSettings(newSettings);
+        if (success) {
+            showToast('Paket berhasil dihapus! ✅', 'success');
+        } else {
+            showToast('Gagal menghapus paket dari database', 'error');
+        }
     };
 
     const addFeature = () => {
@@ -149,9 +167,9 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
             {/* Section Tabs */}
             <div className="flex gap-2 p-1.5 glass rounded-2xl border border-white/10 overflow-x-auto">
                 {[
+                    { id: 'tokopay', label: '💳 Tokopay', icon: '💳' },
                     { id: 'urls', label: '🔗 URL & Webhook', icon: '🔗' },
                     { id: 'packages', label: '📦 Paket Harga', icon: '📦' },
-                    { id: 'perTool', label: '🛒 Jual Satuan', icon: '🛒' },
                     { id: 'ui', label: '🎨 Tampilan', icon: '🎨' },
                     { id: 'features', label: '⚙️ Fitur', icon: '⚙️' }
                 ].map((tab) => (
@@ -167,6 +185,221 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                     </button>
                 ))}
             </div>
+
+            {/* Tokopay Configuration Section */}
+            {activeSection === 'tokopay' && (
+                <div className="glass rounded-2xl p-6 border border-white/10 space-y-6">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        💳 Konfigurasi Tokopay
+                    </h3>
+
+                    {/* Connection Status */}
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/30">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="font-bold text-white">Status Koneksi</p>
+                                <p className="text-xs text-slate-400">Test koneksi ke Tokopay API</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                {connectionStatus === 'success' && (
+                                    <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold">✓ Terhubung</span>
+                                )}
+                                {connectionStatus === 'error' && (
+                                    <span className="px-3 py-1 rounded-full bg-red-500/20 text-red-400 text-xs font-bold">✗ Gagal</span>
+                                )}
+                                <button
+                                    onClick={async () => {
+                                        setTestingConnection(true);
+                                        setConnectionStatus('idle');
+                                        try {
+                                            const resp = await fetch('http://127.0.0.1:8787/health');
+                                            const data = await resp.json();
+                                            if (data.ok && data.tokopayReady) {
+                                                setConnectionStatus('success');
+                                                showToast('Koneksi Tokopay berhasil! ✅', 'success');
+                                            } else {
+                                                setConnectionStatus('error');
+                                                showToast('Tokopay tidak siap', 'error');
+                                            }
+                                        } catch {
+                                            setConnectionStatus('error');
+                                            showToast('Gagal terhubung ke server', 'error');
+                                        }
+                                        setTestingConnection(false);
+                                    }}
+                                    disabled={testingConnection}
+                                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm transition-all disabled:opacity-50"
+                                >
+                                    {testingConnection ? '⏳ Testing...' : '🔌 Test Koneksi'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Merchant Info */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">
+                                Merchant ID
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={settings.tokopayMerchantId || 'M250828KEAYY483'}
+                                    readOnly
+                                    className="flex-1 px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white/70 cursor-not-allowed"
+                                />
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(settings.tokopayMerchantId || 'M250828KEAYY483');
+                                        showToast('Merchant ID disalin! 📋', 'success');
+                                    }}
+                                    className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all"
+                                    title="Copy"
+                                >
+                                    📋
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">ID Merchant dari akun Tokopay</p>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">
+                                Secret Key
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="password"
+                                    value="••••••••••••••••••••••••"
+                                    readOnly
+                                    className="flex-1 px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white/70 cursor-not-allowed"
+                                />
+                                <a
+                                    href="https://dash.tokopay.id/pengaturan/secret-key"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 transition-all text-sm font-bold flex items-center gap-1"
+                                >
+                                    🔑 Lihat
+                                </a>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">Dikonfigurasi di file .env (TOKOPAY_SECRET_KEY)</p>
+                        </div>
+                    </div>
+
+                    {/* Webhook URL */}
+                    <div className="border-t border-white/10 pt-4">
+                        <h4 className="text-sm font-bold text-white mb-4">🪝 Webhook URL</h4>
+                        <div>
+                            <label className="block text-xs font-bold text-purple-400 mb-2 uppercase">
+                                URL Callback Pembayaran
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="url"
+                                    value={settings.tokopayWebhookUrl || 'https://digistore.texa.ai/api/callback/tokopay'}
+                                    readOnly
+                                    className="flex-1 px-4 py-3 bg-black/30 border border-purple-500/30 rounded-xl text-white/70"
+                                />
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(settings.tokopayWebhookUrl || 'https://digistore.texa.ai/api/callback/tokopay');
+                                        showToast('Webhook URL disalin! 📋', 'success');
+                                    }}
+                                    className="px-4 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 transition-all font-bold text-sm"
+                                >
+                                    📋 Copy
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">Paste URL ini di dashboard Tokopay → Pengaturan → Webhook</p>
+                        </div>
+                    </div>
+
+                    {/* Payment Methods */}
+                    <div className="border-t border-white/10 pt-4">
+                        <h4 className="text-sm font-bold text-white mb-4">💰 Metode Pembayaran Aktif</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* QRIS */}
+                            <div className="p-4 rounded-xl bg-black/30 border border-white/10">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <span className="text-2xl">📱</span>
+                                    <div>
+                                        <p className="font-bold text-white">QRIS</p>
+                                        <p className="text-[10px] text-slate-400">Semua Bank & E-Wallet</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-emerald-400">Realtime</span>
+                                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${settings.tokopayEnabledMethods?.qris !== false
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : 'bg-red-500/20 text-red-400'
+                                        }`}>
+                                        {settings.tokopayEnabledMethods?.qris !== false ? '✓ Aktif' : '✗ Nonaktif'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* E-Wallet */}
+                            <div className="p-4 rounded-xl bg-black/30 border border-white/10">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <span className="text-2xl">💳</span>
+                                    <div>
+                                        <p className="font-bold text-white">E-Wallet</p>
+                                        <p className="text-[10px] text-slate-400">DANA, OVO, ShopeePay, GoPay</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-emerald-400">{settings.tokopayEnabledMethods?.ewallet?.length || 4} channel</span>
+                                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${(settings.tokopayEnabledMethods?.ewallet?.length || 0) > 0
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : 'bg-red-500/20 text-red-400'
+                                        }`}>
+                                        {(settings.tokopayEnabledMethods?.ewallet?.length || 0) > 0 ? '✓ Aktif' : '✗ Nonaktif'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Virtual Account */}
+                            <div className="p-4 rounded-xl bg-black/30 border border-white/10">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <span className="text-2xl">🏦</span>
+                                    <div>
+                                        <p className="font-bold text-white">Virtual Account</p>
+                                        <p className="text-[10px] text-slate-400">BCA, BNI, BRI, Mandiri, dll</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs text-emerald-400">{settings.tokopayEnabledMethods?.bank?.length || 6} bank</span>
+                                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${(settings.tokopayEnabledMethods?.bank?.length || 0) > 0
+                                        ? 'bg-emerald-500/20 text-emerald-400'
+                                        : 'bg-red-500/20 text-red-400'
+                                        }`}>
+                                        {(settings.tokopayEnabledMethods?.bank?.length || 0) > 0 ? '✓ Aktif' : '✗ Nonaktif'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Dashboard Link */}
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/30">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="font-bold text-white">🌐 Dashboard Tokopay</p>
+                                <p className="text-xs text-slate-400">Kelola saldo, transaksi, dan pengaturan lainnya</p>
+                            </div>
+                            <a
+                                href="https://dash.tokopay.id/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm transition-all flex items-center gap-2"
+                            >
+                                Buka Dashboard →
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* URLs & Webhook Section */}
             {activeSection === 'urls' && (
@@ -349,197 +582,6 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                                 </div>
                             </div>
                         ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Per-Tool Purchase Section */}
-            {activeSection === 'perTool' && (
-                <div className="glass rounded-2xl p-6 border border-white/10 space-y-6">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                            🛒 Pengaturan Penjualan Satuan
-                        </h3>
-                        <div className="flex items-center gap-3">
-                            <span className="text-sm text-slate-400">Aktifkan Jual Satuan</span>
-                            <button
-                                onClick={() => setSettings({ ...settings, enablePerToolPurchase: !settings.enablePerToolPurchase })}
-                                className={`w-14 h-8 rounded-full transition-all relative ${settings.enablePerToolPurchase !== false ? 'bg-emerald-600' : 'bg-slate-700'}`}
-                            >
-                                <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${settings.enablePerToolPurchase !== false ? 'right-1' : 'left-1'}`}></div>
-                            </button>
-                        </div>
-                    </div>
-
-                    <p className="text-slate-400 text-sm">
-                        Dengan fitur ini, user bisa membeli akses tool per satuan dengan pilihan durasi (7 hari, 2 minggu, atau 1 bulan).
-                    </p>
-
-                    {/* Duration Tiers Management */}
-                    <div className="border-t border-white/10 pt-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-sm font-bold text-white">⏱️ Pilihan Durasi</h4>
-                            <button
-                                onClick={() => {
-                                    const newTier = {
-                                        id: `tier-${Date.now()}`,
-                                        name: '',
-                                        duration: 7,
-                                        price: 15000,
-                                        active: true
-                                    };
-                                    setSettings({
-                                        ...settings,
-                                        perToolDurationTiers: [...(settings.perToolDurationTiers || []), newTier]
-                                    });
-                                }}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all"
-                            >
-                                + Tambah Durasi
-                            </button>
-                        </div>
-
-                        <div className="space-y-3">
-                            {(settings.perToolDurationTiers || []).map((tier, index) => (
-                                <div key={tier.id} className="p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 transition-all">
-                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                                        {/* Name */}
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Nama</label>
-                                            <input
-                                                type="text"
-                                                value={tier.name}
-                                                onChange={(e) => {
-                                                    const tiers = [...(settings.perToolDurationTiers || [])];
-                                                    tiers[index] = { ...tier, name: e.target.value };
-                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
-                                                }}
-                                                placeholder="7 Hari"
-                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
-                                            />
-                                        </div>
-                                        {/* Duration */}
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Durasi (Hari)</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                value={tier.duration}
-                                                onChange={(e) => {
-                                                    const tiers = [...(settings.perToolDurationTiers || [])];
-                                                    tiers[index] = { ...tier, duration: parseInt(e.target.value) || 1 };
-                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
-                                                }}
-                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
-                                            />
-                                        </div>
-                                        {/* Price */}
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Harga (Rp)</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                value={tier.price}
-                                                onChange={(e) => {
-                                                    const tiers = [...(settings.perToolDurationTiers || [])];
-                                                    tiers[index] = { ...tier, price: parseInt(e.target.value) || 0 };
-                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
-                                                }}
-                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
-                                            />
-                                        </div>
-                                        {/* Discount Price */}
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase">Harga Diskon</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                value={tier.discountPrice || ''}
-                                                onChange={(e) => {
-                                                    const tiers = [...(settings.perToolDurationTiers || [])];
-                                                    const val = parseInt(e.target.value);
-                                                    tiers[index] = { ...tier, discountPrice: val > 0 ? val : undefined };
-                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
-                                                }}
-                                                placeholder="Opsional"
-                                                className="w-full px-3 py-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500"
-                                            />
-                                        </div>
-                                        {/* Actions */}
-                                        <div className="flex items-end gap-2">
-                                            <button
-                                                onClick={() => {
-                                                    const tiers = [...(settings.perToolDurationTiers || [])];
-                                                    tiers[index] = { ...tier, popular: !tier.popular };
-                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
-                                                }}
-                                                className={`px-2 py-2 rounded-lg text-xs font-bold transition-all ${tier.popular ? 'bg-amber-500 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
-                                                title="Populer"
-                                            >
-                                                ⭐
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    const tiers = [...(settings.perToolDurationTiers || [])];
-                                                    tiers[index] = { ...tier, active: !tier.active };
-                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
-                                                }}
-                                                className={`px-2 py-2 rounded-lg text-xs font-bold transition-all ${tier.active ? 'bg-emerald-600 text-white' : 'bg-red-500/20 text-red-400'}`}
-                                                title={tier.active ? 'Aktif' : 'Nonaktif'}
-                                            >
-                                                {tier.active ? '✓' : '✗'}
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    const tiers = (settings.perToolDurationTiers || []).filter((_, i) => i !== index);
-                                                    setSettings({ ...settings, perToolDurationTiers: tiers });
-                                                }}
-                                                className="px-2 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs font-bold transition-all"
-                                                title="Hapus"
-                                            >
-                                                🗑️
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {tier.discountPrice && tier.discountPrice > 0 && (
-                                        <p className="text-[10px] text-emerald-400 mt-2">
-                                            Preview: <span className="line-through text-slate-500">{formatIDR(tier.price)}</span> → {formatIDR(tier.discountPrice)}
-                                        </p>
-                                    )}
-                                </div>
-                            ))}
-
-                            {(!settings.perToolDurationTiers || settings.perToolDurationTiers.length === 0) && (
-                                <div className="text-center py-8 text-slate-500">
-                                    <p className="text-4xl mb-2">⏱️</p>
-                                    <p>Belum ada pilihan durasi. Klik "Tambah Durasi" untuk memulai.</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="border-t border-white/10 pt-4">
-                        <h4 className="text-sm font-bold text-white mb-4">🔗 URL Pembayaran Satuan</h4>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">
-                                Payment URL Khusus Eceran
-                            </label>
-                            <input
-                                type="url"
-                                value={settings.perToolPaymentUrl || ''}
-                                onChange={(e) => setSettings({ ...settings, perToolPaymentUrl: e.target.value })}
-                                placeholder="https://tripay.co.id/checkout/eceran"
-                                className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500"
-                            />
-                            <p className="text-[10px] text-slate-500 mt-1">Kosongkan untuk menggunakan Payment URL utama</p>
-                        </div>
-                    </div>
-
-                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
-                        <p className="text-emerald-400 text-sm font-bold mb-1">💡 Tips</p>
-                        <p className="text-slate-400 text-xs">
-                            Pilihan durasi ini akan muncul di popup checkout ketika user memilih "Beli Satuan". User bisa pilih antara 7 hari, 2 minggu, atau 1 bulan sesuai tier yang Anda buat.
-                        </p>
                     </div>
                 </div>
             )}

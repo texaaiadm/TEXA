@@ -69,6 +69,7 @@ export interface SubscriptionPackageLegacy {
     price: number;
     discountPrice?: number;
     features: string[];
+    includedToolIds?: string[]; // IDs of tools from catalog included in this package
     popular?: boolean;
     active: boolean;
 }

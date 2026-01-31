@@ -25,3 +25,4 @@ TEXA-canvas-backup.zip
 *.sw?
 
 .vercel
+.env*.local

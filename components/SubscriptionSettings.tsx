@@ -9,6 +9,16 @@ import {
     SubscriptionPackage,
     DEFAULT_SETTINGS
 } from '../services/supabaseSubscriptionService';
+import { supabase } from '../services/supabaseService';
+
+// Interface for catalog tool
+interface CatalogTool {
+    id: string;
+    name: string;
+    category?: string;
+    image_url?: string;
+    is_active?: boolean;
+}
 
 interface SubscriptionSettingsProps {
     showToast: (message: string, type: 'success' | 'error') => void;
@@ -24,13 +34,18 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
     const [editingPackage, setEditingPackage] = useState<SubscriptionPackage | null>(null);
     const [showPackageModal, setShowPackageModal] = useState(false);
 
-    // Package form state
+    // Catalog tools for selection
+    const [catalogTools, setCatalogTools] = useState<CatalogTool[]>([]);
+    const [showToolDropdown, setShowToolDropdown] = useState(false);
+
+    // Package form state - now features can store tool IDs or text
     const [packageForm, setPackageForm] = useState<SubscriptionPackage>({
         id: '',
         name: '',
         duration: 30,
         price: 0,
         features: [],
+        includedToolIds: [], // New field for selected tool IDs
         active: true
     });
     const [newFeature, setNewFeature] = useState('');
@@ -42,6 +57,26 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
             setLoading(false);
         });
         return () => unsubscribe();
+    }, []);
+
+    // Fetch catalog tools for selection
+    useEffect(() => {
+        const fetchTools = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('tools')
+                    .select('id, name, category, image_url, is_active')
+                    .eq('is_active', true)
+                    .order('sort_order', { ascending: true });
+
+                if (!error && data) {
+                    setCatalogTools(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch tools:', err);
+            }
+        };
+        fetchTools();
     }, []);
 
     // Save settings
@@ -60,7 +95,10 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
     const openPackageModal = (pkg?: SubscriptionPackage) => {
         if (pkg) {
             setEditingPackage(pkg);
-            setPackageForm(pkg);
+            setPackageForm({
+                ...pkg,
+                includedToolIds: pkg.includedToolIds || []
+            });
         } else {
             setEditingPackage(null);
             setPackageForm({
@@ -69,10 +107,37 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                 duration: 30,
                 price: 0,
                 features: [],
+                includedToolIds: [],
                 active: true
             });
         }
+        setShowToolDropdown(false);
         setShowPackageModal(true);
+    };
+
+    // Add tool to package
+    const addToolToPackage = (toolId: string) => {
+        if (!packageForm.includedToolIds?.includes(toolId)) {
+            setPackageForm({
+                ...packageForm,
+                includedToolIds: [...(packageForm.includedToolIds || []), toolId]
+            });
+        }
+        setShowToolDropdown(false);
+    };
+
+    // Remove tool from package
+    const removeToolFromPackage = (toolId: string) => {
+        setPackageForm({
+            ...packageForm,
+            includedToolIds: (packageForm.includedToolIds || []).filter(id => id !== toolId)
+        });
+    };
+
+    // Get tool name by ID
+    const getToolName = (toolId: string): string => {
+        const tool = catalogTools.find(t => t.id === toolId);
+        return tool?.name || toolId;
     };
 
     const savePackage = async () => {
@@ -760,15 +825,73 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                                 />
                             </div>
 
+                            {/* Tools Included - Select from catalog */}
                             <div>
-                                <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">Fitur Termasuk</label>
+                                <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">🛠️ Tools Termasuk (Pilih dari Katalog)</label>
+                                <div className="relative mb-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowToolDropdown(!showToolDropdown)}
+                                        className="w-full px-4 py-3 bg-black/30 border border-indigo-500/30 rounded-xl text-white text-sm text-left flex items-center justify-between hover:border-indigo-500/50 transition-all"
+                                    >
+                                        <span className="text-slate-400">+ Pilih Tools dari Katalog...</span>
+                                        <span className="text-indigo-400">{showToolDropdown ? '▲' : '▼'}</span>
+                                    </button>
+
+                                    {showToolDropdown && (
+                                        <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-white/20 rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto">
+                                            {catalogTools.filter(tool => !packageForm.includedToolIds?.includes(tool.id)).map(tool => (
+                                                <button
+                                                    key={tool.id}
+                                                    type="button"
+                                                    onClick={() => addToolToPackage(tool.id)}
+                                                    className="w-full px-4 py-3 text-left hover:bg-indigo-500/20 transition-all flex items-center gap-3 border-b border-white/5 last:border-b-0"
+                                                >
+                                                    {tool.image_url && (
+                                                        <img src={tool.image_url} alt={tool.name} className="w-8 h-8 rounded-lg object-cover" />
+                                                    )}
+                                                    <div>
+                                                        <p className="text-sm text-white font-medium">{tool.name}</p>
+                                                        {tool.category && <p className="text-[10px] text-slate-400">{tool.category}</p>}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                            {catalogTools.filter(tool => !packageForm.includedToolIds?.includes(tool.id)).length === 0 && (
+                                                <p className="px-4 py-3 text-sm text-slate-400 text-center">Semua tools sudah ditambahkan</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Selected Tools */}
+                                <div className="space-y-1">
+                                    {(packageForm.includedToolIds || []).map((toolId) => {
+                                        const tool = catalogTools.find(t => t.id === toolId);
+                                        return (
+                                            <div key={toolId} className="flex items-center justify-between px-3 py-2 bg-indigo-500/10 border border-indigo-500/30 rounded-lg">
+                                                <div className="flex items-center gap-2">
+                                                    {tool?.image_url && (
+                                                        <img src={tool.image_url} alt={tool?.name} className="w-6 h-6 rounded object-cover" />
+                                                    )}
+                                                    <span className="text-sm text-white">🛠️ {tool?.name || toolId}</span>
+                                                </div>
+                                                <button onClick={() => removeToolFromPackage(toolId)} className="text-red-400 text-xs hover:text-red-300">✗</button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Additional Features - Text */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 mb-2 uppercase">📝 Fitur Tambahan (Teks)</label>
                                 <div className="flex gap-2 mb-2">
                                     <input
                                         type="text"
                                         value={newFeature}
                                         onChange={(e) => setNewFeature(e.target.value)}
                                         onKeyPress={(e) => e.key === 'Enter' && addFeature()}
-                                        placeholder="Tambah fitur..."
+                                        placeholder="Tambah fitur lain... (Support 24/7, dll)"
                                         className="flex-1 px-4 py-2 bg-black/30 border border-white/10 rounded-xl text-white text-sm"
                                     />
                                     <button

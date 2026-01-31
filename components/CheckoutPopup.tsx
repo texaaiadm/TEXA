@@ -9,6 +9,16 @@ import {
     DEFAULT_SETTINGS
 } from '../services/supabaseSubscriptionService';
 import { getSession } from '../services/supabaseAuthService';
+import { supabase } from '../services/supabaseService';
+
+// Interface for catalog tool
+interface CatalogTool {
+    id: string;
+    name: string;
+    category?: string;
+    image_url?: string;
+    is_active?: boolean;
+}
 
 interface CheckoutPopupProps {
     tool: AITool;
@@ -22,9 +32,57 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
     const [selectedDuration, setSelectedDuration] = useState<7 | 14 | 30>(7);
     const [purchaseType, setPurchaseType] = useState<'individual' | 'subscription'>('individual');
 
+    // Catalog tools for displaying tool icons in subscription packages
+    const [catalogTools, setCatalogTools] = useState<CatalogTool[]>([]);
+
     useEffect(() => {
         const unsubscribe = subscribeToSettings((s) => setSettings(s));
         return () => unsubscribe();
+    }, []);
+
+    // Fetch catalog tools for displaying in subscription packages
+    useEffect(() => {
+        const fetchTools = async () => {
+            try {
+                // Try API first (bypasses RLS)
+                const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                    ? 'http://127.0.0.1:8787'
+                    : '';
+
+                const apiResponse = await fetch(`${apiBaseUrl}/api/public/tools`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (apiResponse.ok) {
+                    const result = await apiResponse.json();
+                    if (result.success && result.data) {
+                        setCatalogTools(result.data.filter((t: any) => t.is_active !== false).map((t: any) => ({
+                            id: t.id,
+                            name: t.name,
+                            category: t.category,
+                            image_url: t.image_url,
+                            is_active: t.is_active
+                        })));
+                        return;
+                    }
+                }
+
+                // Fallback to direct Supabase
+                const { data, error } = await supabase
+                    .from('tools')
+                    .select('id, name, category, image_url, is_active')
+                    .eq('is_active', true)
+                    .order('sort_order', { ascending: true });
+
+                if (!error && data) {
+                    setCatalogTools(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch tools for package display:', err);
+            }
+        };
+        fetchTools();
     }, []);
 
     // Set default selected package to the popular one
@@ -37,6 +95,15 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
             if (activePkg) setSelectedPackage(activePkg.id);
         }
     }, [settings.packages]);
+
+    // Get included tools for the selected package
+    const getSelectedPackageTools = (): CatalogTool[] => {
+        const pkg = settings.packages.find(p => p.id === selectedPackage);
+        if (!pkg?.includedToolIds || pkg.includedToolIds.length === 0) return [];
+        return pkg.includedToolIds
+            .map(toolId => catalogTools.find(t => t.id === toolId))
+            .filter((t): t is CatalogTool => t !== undefined);
+    };
 
     // Build per-tool pricing tiers from tool properties
     const toolPricingTiers = [
@@ -297,6 +364,42 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
                                 );
                             })}
                         </div>
+
+                        {/* Included Tools Display - Show when package is selected */}
+                        {purchaseType === 'subscription' && getSelectedPackageTools().length > 0 && (
+                            <div className="mt-4 p-3 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/20">
+                                <p className="text-xs font-bold text-indigo-300 mb-2 flex items-center gap-1">
+                                    <span>🛠️</span> Tools Termasuk dalam Paket:
+                                </p>
+                                <div className="grid grid-cols-1 gap-2">
+                                    {getSelectedPackageTools().map(tool => (
+                                        <div
+                                            key={tool.id}
+                                            className="flex items-center gap-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-all"
+                                        >
+                                            {tool.image_url ? (
+                                                <img
+                                                    src={tool.image_url}
+                                                    alt={tool.name}
+                                                    className="w-8 h-8 rounded-lg object-cover border border-white/10"
+                                                />
+                                            ) : (
+                                                <div className="w-8 h-8 rounded-lg bg-indigo-500/30 flex items-center justify-center">
+                                                    <span className="text-indigo-300 text-xs">🛠️</span>
+                                                </div>
+                                            )}
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-white text-sm font-medium truncate">{tool.name}</p>
+                                                {tool.category && (
+                                                    <p className="text-slate-400 text-[10px] truncate">{tool.category}</p>
+                                                )}
+                                            </div>
+                                            <span className="text-emerald-400 text-xs">✓</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {purchaseType === 'subscription' && (
                             <button

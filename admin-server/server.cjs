@@ -953,6 +953,23 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
       }
     }
 
+    // ==================== Public Tools Endpoint (No Auth Required) ====================
+    // Used by CheckoutPopup to display included tools in subscription packages
+    if (req.method === 'GET' && url.pathname === '/api/public/tools') {
+      try {
+        const response = await supabaseFetch('/rest/v1/tools?select=id,name,category,image_url,is_active&is_active=eq.true&order=sort_order.asc');
+        if (response.ok) {
+          const tools = await response.json();
+          return json(res, 200, { success: true, data: tools });
+        } else {
+          return json(res, 500, { success: false, message: 'Gagal mengambil data tools' });
+        }
+      } catch (e) {
+        console.error('Get public tools error:', e);
+        return json(res, 500, { success: false, message: 'Server error' });
+      }
+    }
+
     // ==================== Admin Tool CRUD Routes ====================
     if (req.method === 'GET' && url.pathname === '/api/admin/tools') {
       const guard = await requireAdminOrDev(req);

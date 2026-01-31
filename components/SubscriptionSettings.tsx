@@ -63,6 +63,61 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
     useEffect(() => {
         const fetchTools = async () => {
             try {
+                const apiBaseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                    ? 'http://127.0.0.1:8787'
+                    : '';
+
+                // Try public API first (no auth required)
+                let apiResponse = await fetch(`${apiBaseUrl}/api/public/tools`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (apiResponse.ok) {
+                    const result = await apiResponse.json();
+                    if (result.success && result.data && result.data.length > 0) {
+                        console.log('✅ Fetched tools via public API:', result.data.length);
+                        setCatalogTools(result.data.filter((t: any) => t.is_active !== false).map((t: any) => ({
+                            id: t.id,
+                            name: t.name,
+                            category: t.category,
+                            image_url: t.image_url,
+                            is_active: t.is_active
+                        })));
+                        return;
+                    }
+                }
+
+                // Fallback to admin API with auth token
+                console.log('Public API unavailable or empty, trying admin API...');
+                const { data: sessionData } = await supabase.auth.getSession();
+                const token = sessionData?.session?.access_token;
+
+                apiResponse = await fetch(`${apiBaseUrl}/api/admin/tools`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    }
+                });
+
+                if (apiResponse.ok) {
+                    const result = await apiResponse.json();
+                    if (result.success && result.data) {
+                        console.log('✅ Fetched tools via admin API:', result.data.length);
+                        setCatalogTools(result.data.filter((t: any) => t.is_active !== false).map((t: any) => ({
+                            id: t.id,
+                            name: t.name,
+                            category: t.category,
+                            image_url: t.image_url,
+                            is_active: t.is_active
+                        })));
+                        return;
+                    }
+                }
+
+                // Fallback to direct Supabase
+                console.log('API unavailable, trying direct Supabase...');
                 const { data, error } = await supabase
                     .from('tools')
                     .select('id, name, category, image_url, is_active')
@@ -70,7 +125,10 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                     .order('sort_order', { ascending: true });
 
                 if (!error && data) {
+                    console.log('✅ Fetched tools via Supabase:', data.length);
                     setCatalogTools(data);
+                } else {
+                    console.error('Failed to fetch tools from Supabase:', error);
                 }
             } catch (err) {
                 console.error('Failed to fetch tools:', err);

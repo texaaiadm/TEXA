@@ -34,28 +34,19 @@ const PaymentGatewaySettings: React.FC<PaymentGatewaySettingsProps> = ({ showToa
         config: {} as Record<string, any>
     });
 
-    // Fetch gateways
+    // Fetch gateways directly from Supabase
     const fetchGateways = async () => {
         try {
-            const session = await supabase.auth.getSession();
-            const token = session.data.session?.access_token;
+            const { data, error } = await supabase
+                .from('payment_gateways')
+                .select('*')
+                .order('created_at', { ascending: false });
 
-            if (!token) {
-                showToast('Not authenticated', 'error');
-                return;
-            }
-
-            const response = await fetch('/api/admin/payment-gateways', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            const data = await response.json();
-            if (data.success) {
-                setGateways(data.data || []);
+            if (error) {
+                console.error('Error fetching gateways:', error);
+                showToast(error.message || 'Failed to fetch gateways', 'error');
             } else {
-                showToast(data.error || 'Failed to fetch gateways', 'error');
+                setGateways(data || []);
             }
         } catch (error) {
             console.error('Error fetching gateways:', error);
@@ -93,40 +84,50 @@ const PaymentGatewaySettings: React.FC<PaymentGatewaySettingsProps> = ({ showToa
         setShowModal(true);
     };
 
-    // Save gateway
+    // Save gateway directly to Supabase
     const handleSave = async () => {
         try {
             setSaving(true);
-            const session = await supabase.auth.getSession();
-            const token = session.data.session?.access_token;
 
-            if (!token) {
-                showToast('Not authenticated', 'error');
-                return;
-            }
+            if (editingGateway) {
+                // Update existing gateway
+                const { error } = await supabase
+                    .from('payment_gateways')
+                    .update({
+                        name: formData.name,
+                        is_active: formData.is_active,
+                        is_default: formData.is_default,
+                        config: formData.config,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', editingGateway.id);
 
-            const url = editingGateway
-                ? `/api/admin/payment-gateways/${editingGateway.id}`
-                : `/api/admin/payment-gateways`;
-
-            const method = editingGateway ? 'PUT' : 'POST';
-
-            const response = await fetch(url, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify(formData)
-            });
-
-            const data = await response.json();
-            if (data.success) {
-                showToast(`Gateway ${editingGateway ? 'updated' : 'created'} successfully`, 'success');
-                setShowModal(false);
-                fetchGateways();
+                if (error) {
+                    showToast(error.message || 'Failed to update gateway', 'error');
+                } else {
+                    showToast('Gateway updated successfully', 'success');
+                    setShowModal(false);
+                    fetchGateways();
+                }
             } else {
-                showToast(data.error || 'Failed to save gateway', 'error');
+                // Create new gateway
+                const { error } = await supabase
+                    .from('payment_gateways')
+                    .insert({
+                        name: formData.name,
+                        type: formData.type,
+                        is_active: formData.is_active,
+                        is_default: formData.is_default,
+                        config: formData.config
+                    });
+
+                if (error) {
+                    showToast(error.message || 'Failed to create gateway', 'error');
+                } else {
+                    showToast('Gateway created successfully', 'success');
+                    setShowModal(false);
+                    fetchGateways();
+                }
             }
         } catch (error) {
             console.error('Error saving gateway:', error);
@@ -171,32 +172,21 @@ const PaymentGatewaySettings: React.FC<PaymentGatewaySettingsProps> = ({ showToa
         }
     };
 
-    // Delete gateway
+    // Delete gateway directly from Supabase
     const handleDelete = async (gatewayId: string) => {
         if (!confirm('Are you sure you want to delete this gateway?')) return;
 
         try {
-            const session = await supabase.auth.getSession();
-            const token = session.data.session?.access_token;
+            const { error } = await supabase
+                .from('payment_gateways')
+                .delete()
+                .eq('id', gatewayId);
 
-            if (!token) {
-                showToast('Not authenticated', 'error');
-                return;
-            }
-
-            const response = await fetch(`/api/admin/payment-gateways/${gatewayId}`, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            const data = await response.json();
-            if (data.success) {
+            if (error) {
+                showToast(error.message || 'Failed to delete gateway', 'error');
+            } else {
                 showToast('Gateway deleted successfully', 'success');
                 fetchGateways();
-            } else {
-                showToast(data.error || 'Failed to delete gateway', 'error');
             }
         } catch (error) {
             console.error('Error deleting gateway:', error);

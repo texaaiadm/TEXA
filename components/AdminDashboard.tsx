@@ -2054,6 +2054,8 @@ const AdminDashboard: React.FC = () => {
             <iframe title="Token Vault" srcDoc={toketExtHtml} className="w-full h-[80vh] bg-slate-950" />
           </div>
         </div>
+      ) : activeTab === 'paymentGateways' ? (
+        <PaymentGatewaySettings showToast={showToast} />
       ) : (
         <>
           {/* Stats Cards */}

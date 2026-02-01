@@ -8,11 +8,37 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL |
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) : null;
 
-const TOKOPAY_CONFIG = {
-    merchantId: process.env.TOKOPAY_MERCHANT_ID || 'M250828KEAYY483',
-    secretKey: process.env.TOKOPAY_SECRET_KEY || 'b3bb79b23b82ed33a54927dbaac95d8a70e19de7f5d47a613d1db4d32776125c',
-    apiBaseUrl: 'https://api.tokopay.id/v1'
-};
+// Fetch TokoPay config from database with fallback to env vars
+async function getTokopayConfig() {
+    if (supabase) {
+        try {
+            const { data } = await supabase
+                .from('payment_gateways')
+                .select('config')
+                .eq('type', 'tokopay')
+                .eq('is_active', true)
+                .single();
+
+            if (data && data.config) {
+                return {
+                    merchantId: data.config.merchantId,
+                    secretKey: data.config.secretKey,
+                    apiBaseUrl: 'https://api.tokopay.id/v1'
+                };
+            }
+        } catch (error) {
+            console.log('Using fallback TokoPay config from environment variables');
+        }
+    }
+
+    // Fallback to environment variables
+    return {
+        merchantId: process.env.TOKOPAY_MERCHANT_ID || 'M250828KEAYY483',
+        secretKey: process.env.TOKOPAY_SECRET_KEY || 'b3bb79b23b82ed33a54927dbaac95d8a70e19de7f5d47a613d1db4d32776125c',
+        apiBaseUrl: 'https://api.tokopay.id/v1'
+    };
+}
+
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     // CORS Headers
@@ -39,16 +65,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             });
         }
 
+        // Get TokoPay config from database or fallback to env vars
+        const tokopayConfig = await getTokopayConfig();
+
         // Build TokoPay API URL
         const params = new URLSearchParams({
-            merchant: TOKOPAY_CONFIG.merchantId,
-            secret: TOKOPAY_CONFIG.secretKey,
+            merchant: tokopayConfig.merchantId,
+            secret: tokopayConfig.secretKey,
             ref_id: refId,
             nominal: nominal.toString(),
             metode: metode
         });
 
-        const apiUrl = `${TOKOPAY_CONFIG.apiBaseUrl}/order?${params.toString()}`;
+        const apiUrl = `${tokopayConfig.apiBaseUrl}/order?${params.toString()}`;
 
         // Call TokoPay API
         const tokopayResponse = await fetch(apiUrl);

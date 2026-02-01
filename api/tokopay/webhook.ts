@@ -9,11 +9,37 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL |
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) : null;
 
-const TOKOPAY_CONFIG = {
-    merchantId: process.env.TOKOPAY_MERCHANT_ID || 'M250828KEAYY483',
-    secretKey: process.env.TOKOPAY_SECRET_KEY || 'b3bb79b23b82ed33a54927dbaac95d8a70e19de7f5d47a613d1db4d32776125c',
-    webhookIp: '178.128.104.179'
-};
+// Fetch TokoPay config from database with fallback to env vars
+async function getTokopayConfig() {
+    if (supabase) {
+        try {
+            const { data } = await supabase
+                .from('payment_gateways')
+                .select('config')
+                .eq('type', 'tokopay')
+                .eq('is_active', true)
+                .single();
+
+            if (data && data.config) {
+                return {
+                    merchantId: data.config.merchantId,
+                    secretKey: data.config.secretKey,
+                    webhookIp: data.config.webhookIp || '178.128.104.179'
+                };
+            }
+        } catch (error) {
+            console.log('Using fallback TokoPay config from environment variables');
+        }
+    }
+
+    // Fallback to environment variables
+    return {
+        merchantId: process.env.TOKOPAY_MERCHANT_ID || 'M250828KEAYY483',
+        secretKey: process.env.TOKOPAY_SECRET_KEY || 'b3bb79b23b82ed33a54927dbaac95d8a70e19de7f5d47a613d1db4d32776125c',
+        webhookIp: '178.128.104.179'
+    };
+}
+
 
 interface TokopayWebhookPayload {
     data: {
@@ -34,8 +60,8 @@ interface TokopayWebhookPayload {
 }
 
 // Verify signature from TokoPay
-function verifySignature(merchantId: string, refId: string, receivedSignature: string): boolean {
-    const signatureString = `${merchantId}:${TOKOPAY_CONFIG.secretKey}:${refId}`;
+function verifySignature(merchantId: string, refId: string, receivedSignature: string, secretKey: string): boolean {
+    const signatureString = `${merchantId}:${secretKey}:${refId}`;
     const expectedSignature = CryptoJS.MD5(signatureString).toString();
     return expectedSignature.toLowerCase() === receivedSignature.toLowerCase();
 }
@@ -159,11 +185,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             return res.status(200).json({ status: true, message: 'Connection test successful' });
         }
 
+        // Get TokoPay config for signature verification
+        const tokopayConfig = await getTokopayConfig();
+
         // Verify signature
         const isValidSignature = verifySignature(
-            payload.data.merchant_id || TOKOPAY_CONFIG.merchantId,
+            payload.data.merchant_id || tokopayConfig.merchantId,
             payload.reff_id,
-            payload.signature
+            payload.signature,
+            tokopayConfig.secretKey
         );
 
         if (!isValidSignature) {

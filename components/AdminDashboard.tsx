@@ -26,6 +26,7 @@ import CatalogManager from './CatalogManager';
 import DockManager from './DockManager';
 import FooterManager from './FooterManager';
 import SubscriptionSettingsManager from './SubscriptionSettings';
+import PaymentGatewaySettings from './PaymentGatewaySettings';
 import {
   subscribeToRevenueShareSettings,
   saveRevenueShareSettings,
@@ -64,7 +65,7 @@ import toketHtml from '../tambahan/toket.txt?raw';
 import toketExtHtml from '../tambahan/toket-ext.txt?raw';
 
 // Tab type
-type AdminTab = 'members' | 'catalog' | 'subscription' | 'revenueShare' | 'extension' | 'theme' | 'header' | 'toket' | 'tokenVault' | 'dock' | 'footer' | 'dashboardContent';
+type AdminTab = 'members' | 'catalog' | 'subscription' | 'paymentGateways' | 'revenueShare' | 'extension' | 'theme' | 'header' | 'toket' | 'tokenVault' | 'dock' | 'footer' | 'dashboardContent';
 
 const hexToRgb = (hex: string) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -911,6 +912,15 @@ const AdminDashboard: React.FC = () => {
           >
             📝 Konten Dashboard
           </button>
+          <button
+            onClick={() => setActiveTab('paymentGateways')}
+            className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'paymentGateways'
+              ? 'bg-gradient-to-r from-green-600 to-teal-600 text-white shadow-lg shadow-green-500/30'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+          >
+            💳 Payment Gateways
+          </button>
         </div>
       </div>
 
@@ -1281,6 +1291,8 @@ const AdminDashboard: React.FC = () => {
         <DockManager showToast={showToast} />
       ) : activeTab === 'catalog' ? (
         <CatalogManager showToast={showToast} />
+      ) : activeTab === 'paymentGateways' ? (
+        <PaymentGatewaySettings showToast={showToast} />
       ) : activeTab === 'subscription' ? (
         <SubscriptionSettingsManager showToast={showToast} />
       ) : activeTab === 'revenueShare' ? (

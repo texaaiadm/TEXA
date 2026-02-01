@@ -177,8 +177,8 @@ const PaymentPage: React.FC = () => {
                     checkoutUrl: result.data.checkoutUrl
                 });
 
-                // Open Tokopay payment page in new tab for convenience
-                window.open(result.data.payUrl, '_blank');
+                // QRIS is displayed inline - no need to open external page
+                // User can manually open via "Buka Halaman Pembayaran" button if needed
             } else {
                 setError(result.error || 'Gagal membuat pembayaran');
             }

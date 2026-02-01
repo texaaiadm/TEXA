@@ -809,9 +809,18 @@
 
     /* Updated hero-title to be wider and more compact vertically */
     .hero-title {
-      font-size: clamp(1.8rem, 6vw, 3.8rem);
+      font-size: clamp(1.2rem, 4vw, 3rem);
       line-height: 1.2;
       letter-spacing: -0.04em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    @media (max-width: 768px) {
+      .hero-title {
+        font-size: clamp(0.9rem, 3.5vw, 1.8rem);
+      }
     }
 
     .no-scrollbar::-webkit-scrollbar {

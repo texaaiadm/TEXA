@@ -129,7 +129,16 @@ async function activateIndividualTool(userId: string, toolId: string, durationDa
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-    // Only allow POST
+    // Allow GET for connection test from TokoPay dashboard
+    if (req.method === 'GET') {
+        return res.status(200).json({
+            status: true,
+            message: 'TokoPay webhook endpoint is active',
+            timestamp: new Date().toISOString()
+        });
+    }
+
+    // Only allow POST for actual webhooks
     if (req.method !== 'POST') {
         return res.status(405).json({ status: false, error: 'Method not allowed' });
     }
@@ -139,10 +148,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         console.log('TokoPay Webhook Received:', JSON.stringify(payload, null, 2));
 
-        // Validate required fields
+        // Handle empty or test payloads gracefully
+        if (!payload || Object.keys(payload).length === 0) {
+            return res.status(200).json({ status: true, message: 'Webhook endpoint ready' });
+        }
+
+        // Validate required fields for actual payment callbacks
         if (!payload.reff_id || !payload.signature || !payload.status) {
-            console.error('Missing required webhook fields');
-            return res.status(400).json({ status: false, error: 'Invalid payload' });
+            console.log('Missing required webhook fields (possibly a test ping)');
+            return res.status(200).json({ status: true, message: 'Connection test successful' });
         }
 
         // Verify signature

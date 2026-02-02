@@ -34,24 +34,84 @@ const PaymentGatewaySettings: React.FC<PaymentGatewaySettingsProps> = ({ showToa
         config: {} as Record<string, any>
     });
 
-    // Fetch gateways directly from Supabase
-    const fetchGateways = async () => {
+    // Fetch gateways directly from Supabase with comprehensive debugging
+    const fetchGateways = async (retryCount = 0) => {
         try {
+            console.log('[PaymentGateways] === START FETCH ===');
+            console.log('[PaymentGateways] Retry count:', retryCount);
+
+            // Check auth session FIRST
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            console.log('[PaymentGateways] Auth session:', {
+                hasSession: !!sessionData.session,
+                userId: sessionData.session?.user?.id,
+                email: sessionData.session?.user?.email,
+                sessionError: sessionError ? sessionError.message : null
+            });
+
+            if (!sessionData.session) {
+                console.error('[PaymentGateways] No active auth session!');
+                showToast('Authentication required. Please login again.', 'error');
+                setGateways([]);
+                setLoading(false);
+                return;
+            }
+
+            console.log('[PaymentGateways] Starting Supabase query...');
+
+            // Create an AbortController with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.warn('[PaymentGateways] Query timeout triggered (10s)');
+                controller.abort();
+            }, 10000);
+
+            console.log('[PaymentGateways] Executing .from("payment_gateways").select("*")...');
             const { data, error } = await supabase
                 .from('payment_gateways')
                 .select('*')
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .abortSignal(controller.signal);
+
+            clearTimeout(timeoutId);
+            console.log('[PaymentGateways] Query completed');
 
             if (error) {
-                console.error('Error fetching gateways:', error);
+                console.error('[PaymentGateways] Supabase error:', {
+                    message: error.message,
+                    code: error.code,
+                    details: error.details,
+                    hint: error.hint
+                });
                 showToast(error.message || 'Failed to fetch gateways', 'error');
+                setGateways([]);
             } else {
+                console.log('[PaymentGateways] Success! Data:', data);
+                console.log('[PaymentGateways] Row count:', data?.length || 0);
                 setGateways(data || []);
+
+                if ((data || []).length === 0) {
+                    console.warn('[PaymentGateways] No gateways found in database');
+                }
             }
-        } catch (error) {
-            console.error('Error fetching gateways:', error);
-            showToast('Failed to fetch gateways', 'error');
+        } catch (error: any) {
+            console.error('[PaymentGateways] Exception:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack
+            });
+
+            // Retry once on AbortError
+            if (retryCount < 1 && (error.name === 'AbortError' || error.message?.includes('abort'))) {
+                console.log('[PaymentGateways] Retrying after AbortError (attempt ' + (retryCount + 2) + ')');
+                setTimeout(() => fetchGateways(retryCount + 1), 1500);
+                return;
+            }
+
+            showToast('Failed to fetch gateways: ' + (error.message || 'Unknown error'), 'error');
+            setGateways([]);
         } finally {
+            console.log('[PaymentGateways] === END FETCH ===');
             setLoading(false);
         }
     };

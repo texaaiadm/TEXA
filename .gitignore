@@ -26,3 +26,18 @@ TEXA-canvas-backup.zip
 
 .vercel
 .env*.local
+
+# Environment variables (sensitive)
+.env
+.env.production
+*.env
+
+# Admin server secrets
+admin-server/.env
+admin-server/config/*.secret.*
+
+# AI conversation artifacts
+.gemini/
+
+# Supabase local development
+supabase/

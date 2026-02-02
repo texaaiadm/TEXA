@@ -1417,6 +1417,95 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
       }
     }
 
+    // Payment Gateway Test Connection
+    if (req.method === 'POST' && url.pathname === '/api/admin/payment-gateways/test') {
+      const guard = await requireAdminOrDev(req);
+      if (!guard.ok) return json(res, guard.status, { success: false, message: guard.message });
+
+      try {
+        const body = await readBody(req);
+        const { gatewayId } = body;
+
+        if (!gatewayId) {
+          return json(res, 400, { success: false, message: 'Gateway ID required' });
+        }
+
+        // Get gateway config from Supabase
+        const gatewayResp = await supabaseFetch(`/rest/v1/payment_gateways?id=eq.${gatewayId}&select=*`);
+        if (!gatewayResp.ok) {
+          return json(res, 500, { success: false, message: 'Failed to fetch gateway config' });
+        }
+
+        const gateways = await gatewayResp.json();
+        const gateway = gateways[0];
+
+        if (!gateway) {
+          return json(res, 404, { success: false, message: 'Gateway not found' });
+        }
+
+        // Test based on gateway type
+        if (gateway.type === 'tokopay') {
+          const merchantId = gateway.config.merchantId || TOKOPAY_CONFIG.merchantId;
+          const secretKey = gateway.config.secretKey || TOKOPAY_CONFIG.secretKey;
+
+          // Test by calling TokoPay simple endpoint (get payment methods)
+          const testParams = new URLSearchParams({
+            merchant: merchantId,
+            secret: secretKey
+          });
+
+          const testUrl = `${TOKOPAY_CONFIG.apiBaseUrl}/merchant?${testParams.toString()}`;
+          console.log('🧪 Testing TokoPay connection:', { merchantId });
+
+          const testResponse = await fetch(testUrl);
+          const testResult = await testResponse.json();
+
+          console.log('📥 TokoPay test response:', testResult);
+
+          if (testResult.status === 'Success' || testResponse.ok) {
+            return json(res, 200, {
+              success: true,
+              message: 'TokoPay connection successful! ✅',
+              data: {
+                merchant: merchantId,
+                apiStatus: testResult.status,
+                available: true
+              }
+            });
+          } else {
+            return json(res, 400, {
+              success: false,
+              message: `TokoPay connection failed: ${testResult.error_msg || 'Invalid credentials'}`,
+              data: testResult
+            });
+          }
+        } else if (gateway.type === 'midtrans') {
+          return json(res, 200, {
+            success: true,
+            message: 'Midtrans test not implemented yet',
+            data: { type: 'midtrans' }
+          });
+        } else if (gateway.type === 'xendit') {
+          return json(res, 200, {
+            success: true,
+            message: 'Xendit test not implemented yet',
+            data: { type: 'xendit' }
+          });
+        } else {
+          return json(res, 400, {
+            success: false,
+            message: 'Unknown gateway type'
+          });
+        }
+      } catch (error) {
+        console.error('Test gateway connection error:', error);
+        return json(res, 500, {
+          success: false,
+          message: `Connection test failed: ${error.message}`
+        });
+      }
+    }
+
     // Admin API Routes
     if (req.method === 'POST' && (url.pathname === '/admin/create-user' || url.pathname === '/api/admin/create-user')) {
       return await handleCreateUser(req, res);

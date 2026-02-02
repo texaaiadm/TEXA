@@ -65,8 +65,45 @@ import toketHtml from '../tambahan/toket.txt?raw';
 import toketExtHtml from '../tambahan/toket-ext.txt?raw';
 
 // Tab type
-type AdminTab = 'members' | 'catalog' | 'subscription' | 'paymentGateways' | 'revenueShare' | 'extension' | 'theme' | 'header' | 'toket' | 'tokenVault' | 'dock' | 'footer' | 'dashboardContent';
+type AdminTab =
+  | 'members'
+  | 'catalog'
+  | 'subscription'
+  | 'revenueShare'
+  | 'extension'
+  | 'theme'
+  | 'toket'
+  | 'tokenVault'
+  | 'dock'
+  | 'footer'
+  | 'header'
+  | 'dashboardContent'
+  | 'paymentGateways';
 
+// User Tools interface - FIXED to match actual DB schema
+interface UserTool {
+  id: string;
+  user_id: string;  // TEXT in database
+  tool_id: string;  // TEXT in database
+  access_end: string;
+  order_ref_id?: string;
+  created_at: string;
+  tool?: {
+    id: string;
+    name: string;
+    icon?: string;
+    category?: string;
+  };
+}
+
+interface Tool {
+  id: string;
+  name: string;
+  icon?: string;
+  category?: string;
+  is_active: boolean;
+  description?: string;
+}
 const hexToRgb = (hex: string) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result
@@ -179,6 +216,16 @@ const AdminDashboard: React.FC = () => {
   const [dashboardContentDirty, setDashboardContentDirty] = useState(false);
   const [dashboardContentSaving, setDashboardContentSaving] = useState(false);
   const dashboardContentDirtyRef = useRef(false);
+
+  // User Tools Management states
+  const [showToolsModal, setShowToolsModal] = useState(false);
+  const [selectedUserForTools, setSelectedUserForTools] = useState<TexaUser | null>(null);
+  const [userTools, setUserTools] = useState<UserTool[]>([]);
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
+  const [loadingTools, setLoadingTools] = useState(false);
+  const [selectedToolId, setSelectedToolId] = useState('');
+  const [toolDuration, setToolDuration] = useState(30);
+  const [saving, setSaving] = useState(false);
 
 
   useEffect(() => {
@@ -704,6 +751,344 @@ const AdminDashboard: React.FC = () => {
       showToast(err?.message || 'Gagal test koneksi database', 'error');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // ======== USER TOOLS MANAGEMENT HANDLERS ========
+
+  const openToolsModal = async (user: TexaUser) => {
+    setSelectedUserForTools(user);
+    setLoadingTools(true);
+    setShowToolsModal(true);
+    setSelectedToolId('');
+    setToolDuration(30);
+
+    try {
+      // Import supabase dynamically
+      const { supabase } = await import('../services/supabaseService');
+
+      console.log('🔧 [DEBUG] Fetching tools for user:', user.id, user.email);
+
+      // First, try to fetch user_tools WITHOUT join to diagnose
+      const { data: rawUserTools, error: rawError } = await supabase
+        .from('user_tools')
+        .select('*')
+        .eq('user_id', user.id);
+
+      console.log('🔧 [DEBUG] Raw user_tools query result:', {
+        count: rawUserTools?.length || 0,
+        data: rawUserTools,
+        error: rawError
+      });
+
+      if (rawError) {
+        console.error('❌ [ERROR] Failed to fetch user_tools:', rawError);
+        showToast('Error fetching tools: ' + rawError.message, 'error');
+      }
+
+      // Now try WITH join to tools table
+      const { data: userToolsData, error: userToolsError } = await supabase
+        .from('user_tools')
+        .select(`
+          *,
+          tool:tools!user_tools_tool_id_fkey (
+            id,
+            name,
+            category
+          )
+        `)
+        .eq('user_id', user.id)
+        .gte('access_end', new Date().toISOString())
+        .order('access_end', { ascending: true });
+
+      console.log('🔧 [DEBUG] Joined query result:', {
+        count: userToolsData?.length || 0,
+        data: userToolsData,
+        error: userToolsError
+      });
+
+      if (userToolsError) {
+        console.error('❌ [ERROR] Joined query failed:', userToolsError);
+
+        // Fallback: if join fails, fetch separately
+        console.log('⚠️ [FALLBACK] Fetching without join...');
+
+        const { data: basicTools } = await supabase
+          .from('user_tools')
+          .select('*')
+          .eq('user_id', user.id)
+          .gte('access_end', new Date().toISOString());
+
+        if (basicTools && basicTools.length > 0) {
+          // Fetch tool details separately
+          const toolIds = basicTools.map((ut: any) => ut.tool_id);
+          const { data: toolsInfo } = await supabase
+            .from('tools')
+            .select('id, name, category')
+            .in('id', toolIds);
+
+          // Merge data
+          const merged = basicTools.map((ut: any) => ({
+            ...ut,
+            tool: toolsInfo?.find((t: any) => t.id === ut.tool_id)
+          }));
+
+          console.log('✅ [FALLBACK] Merged data:', merged);
+          setUserTools(merged as UserTool[]);
+          showToast(`Found ${merged.length} active tools`, 'success');
+        } else {
+          setUserTools([]);
+          console.log('ℹ️ No active tools found for user');
+        }
+      } else {
+        setUserTools(userToolsData as UserTool[]);
+        console.log(`✅ Found ${userToolsData?.length || 0} tools with join`);
+      }
+
+      // Fetch all available tools
+      const { data: toolsData, error: toolsError } = await supabase
+        .from('tools')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+
+      console.log('🔧 [DEBUG] Available tools:', {
+        count: toolsData?.length || 0,
+        error: toolsError
+      });
+
+      if (!toolsError && toolsData) {
+        setAvailableTools(toolsData as Tool[]);
+      } else if (toolsError) {
+        console.error('Error fetching available tools:', toolsError);
+      }
+
+    } catch (err: any) {
+      console.error('❌ [FATAL] Error in openToolsModal:', err);
+      showToast('Gagal memuat data tools', 'error');
+    } finally {
+      setLoadingTools(false);
+    }
+  };
+
+  const handleGrantToolAccess = async () => {
+    if (!selectedUserForTools || !selectedToolId) {
+      showToast('Pilih tool terlebih dahulu', 'error');
+      return;
+    }
+
+    if (toolDuration <= 0) {
+      showToast('Durasi harus lebih dari 0 hari', 'error');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { supabase } = await import('../services/supabaseService');
+
+      const now = new Date();
+      const accessEnd = new Date(now);
+      accessEnd.setDate(now.getDate() + toolDuration);
+
+      // Upsert user_tools entry - FIXED: match actual schema (no access_start, TEXT IDs)
+      const { error } = await supabase
+        .from('user_tools')
+        .upsert({
+          user_id: selectedUserForTools.id,
+          tool_id: selectedToolId,
+          access_end: accessEnd.toISOString()
+        }, {
+          onConflict: 'user_id,tool_id'
+        });
+
+      if (error) {
+        console.error('Error granting tool access:', error);
+        showToast('Gagal memberikan akses tool: ' + error.message, 'error');
+      } else {
+        showToast(`Akses tool diberikan untuk ${toolDuration} hari`, 'success');
+
+        // Refresh user tools list
+        const { data: refreshedData } = await supabase
+          .from('user_tools')
+          .select(`
+            *,
+            tool:tools (
+              id,
+              name,
+              icon,
+              category
+            )
+          `)
+          .eq('user_id', selectedUserForTools.id)
+          .gte('access_end', new Date().toISOString())
+          .order('access_end', { ascending: true });
+
+        if (refreshedData) {
+          setUserTools(refreshedData as UserTool[]);
+        }
+
+        // Reset form
+        setSelectedToolId('');
+        setToolDuration(30);
+      }
+    } catch (err: any) {
+      console.error('Error in handleGrantToolAccess:', err);
+      showToast('Gagal memberikan akses tool', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRevokeToolAccess = async (toolId: string, toolName: string) => {
+    if (!confirm(`Hapus akses ke ${toolName}?`)) return;
+    if (!selectedUserForTools) return;
+
+    console.log('🗑️ [DELETE] Revoking access:', { userId: selectedUserForTools.id, toolId, toolName });
+    setSaving(true);
+
+    try {
+      const { supabase } = await import('../services/supabaseService');
+
+      // Delete with exact match
+      const { error, count } = await supabase
+        .from('user_tools')
+        .delete({ count: 'exact' })
+        .eq('user_id', selectedUserForTools.id)
+        .eq('tool_id', toolId);
+
+      console.log('🗑️ [DELETE] Result:', { error, deletedCount: count });
+
+      if (error) {
+        console.error('❌ Error revoking tool access:', error);
+        showToast('Gagal menghapus akses: ' + error.message, 'error');
+      } else {
+        console.log(`✅ Deleted ${count} record(s)`);
+        showToast('Akses tool berhasil dihapus! 🗑️', 'success');
+
+        // IMMEDIATE REFRESH - no cache, fetch fresh from database
+        await refreshUserToolsList();
+      }
+    } catch (err: any) {
+      console.error('❌ [FATAL] Error in handleRevokeToolAccess:', err);
+      showToast('Gagal menghapus akses tool', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleExtendAccess = async (toolId: string, toolName: string) => {
+    const days = prompt(`Perpanjang akses ${toolName} berapa hari?`, '30');
+    if (!days) return;
+
+    const additionalDays = parseInt(days);
+    if (isNaN(additionalDays) || additionalDays <= 0) {
+      showToast('Jumlah hari tidak valid', 'error');
+      return;
+    }
+
+    if (!selectedUserForTools) return;
+
+    console.log('⏰ [EXTEND] Extending access:', { userId: selectedUserForTools.id, toolId, toolName, days: additionalDays });
+    setSaving(true);
+    try {
+      const { supabase } = await import('../services/supabaseService');
+
+      // Get current access_end - NO CACHE
+      const { data: userTool, error: fetchError } = await supabase
+        .from('user_tools')
+        .select('access_end')
+        .eq('user_id', selectedUserForTools.id)
+        .eq('tool_id', toolId)
+        .single();
+
+      console.log('⏰ [EXTEND] Current access_end:', userTool?.access_end);
+
+      if (fetchError || !userTool) {
+        console.error('❌ Tool not found:', fetchError);
+        showToast('Tool access tidak ditemukan', 'error');
+        setSaving(false);
+        return;
+      }
+
+      const currentEnd = new Date(userTool.access_end);
+      const newEnd = new Date(currentEnd);
+      newEnd.setDate(currentEnd.getDate() + additionalDays);
+
+      console.log('⏰ [EXTEND] New access_end:', newEnd.toISOString());
+
+      // Update with exact match
+      const { error, count } = await supabase
+        .from('user_tools')
+        .update({
+          access_end: newEnd.toISOString()
+        }, { count: 'exact' })
+        .eq('user_id', selectedUserForTools.id)
+        .eq('tool_id', toolId);
+
+      console.log('⏰ [EXTEND] Update result:', { error, updatedCount: count });
+
+      if (error) {
+        console.error('❌ Error extending tool access:', error);
+        showToast('Gagal memperpanjang: ' + error.message, 'error');
+      } else {
+        console.log(`✅ Extended ${count} record(s) by ${additionalDays} days`);
+        showToast(`Akses diperpanjang ${additionalDays} hari! ⏰`, 'success');
+
+        // IMMEDIATE REFRESH - no cache
+        await refreshUserToolsList();
+
+      }
+    } catch (err: any) {
+      console.error('❌ [FATAL] Error in handleExtendAccess:', err);
+      showToast('Gagal memperpanjang akses tool', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Helper function to refresh tools list with NO CACHE
+  const refreshUserToolsList = async () => {
+    if (!selectedUserForTools) return;
+
+    console.log('🔄 [REFRESH] Fetching fresh data from database...');
+
+    try {
+      const { supabase } = await import('../services/supabaseService');
+
+      // Force fresh fetch with timestamp to bust cache
+      const timestamp = new Date().getTime();
+
+      const { data: freshData, error } = await supabase
+        .from('user_tools')
+        .select('*')
+        .eq('user_id', selectedUserForTools.id)
+        .gte('access_end', new Date().toISOString());
+
+      console.log('🔄 [REFRESH] Raw data:', { count: freshData?.length, error });
+
+      if (!error && freshData) {
+        // Fetch tool details separately to avoid join issues
+        const toolIds = freshData.map((ut: any) => ut.tool_id);
+
+        if (toolIds.length > 0) {
+          const { data: toolsInfo } = await supabase
+            .from('tools')
+            .select('id, name, icon, category')
+            .in('id', toolIds);
+
+          const merged = freshData.map((ut: any) => ({
+            ...ut,
+            tool: toolsInfo?.find((t: any) => t.id === ut.tool_id)
+          }));
+
+          console.log('✅ [REFRESH] Updated list:', merged.length, 'tools');
+          setUserTools(merged as UserTool[]);
+        } else {
+          setUserTools([]);
+        }
+      }
+    } catch (err) {
+      console.error('❌ [REFRESH] Failed:', err);
     }
   };
 
@@ -2242,10 +2627,20 @@ const AdminDashboard: React.FC = () => {
                             {/* Delete */}
                             <button
                               onClick={() => openModal(user, 'delete')}
+                              disabled={actionLoading}
                               className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
                               title="Hapus User"
                             >
                               🗑️
+                            </button>
+                            {/* Manage Tools */}
+                            <button
+                              onClick={() => openToolsModal(user)}
+                              disabled={actionLoading}
+                              className="p-2 rounded-lg hover:bg-purple-500/20 text-purple-400 transition-colors"
+                              title="Kelola Tools User"
+                            >
+                              🔧
                             </button>
                           </div>
                         </td>
@@ -2512,6 +2907,179 @@ const AdminDashboard: React.FC = () => {
                     </div>
                   </>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* User Tools Management Modal */}
+          {showToolsModal && selectedUserForTools && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowToolsModal(false)}>
+              <div className="glass rounded-2xl border border-white/10 w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                {/* Modal Header */}
+                <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-black text-white flex items-center gap-2">
+                      🔧 Kelola Tools - {selectedUserForTools.name}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">{selectedUserForTools.email}</p>
+                  </div>
+                  <button
+                    onClick={() => setShowToolsModal(false)}
+                    className="text-slate-400 hover:text-white transition-colors text-2xl"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                  {/* Active Tools List */}
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                      📦 Tools Aktif ({userTools.length})
+                    </h4>
+                    {loadingTools ? (
+                      <div className="text-center py-8">
+                        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                        <p className="text-slate-400 text-sm mt-2">Memuat tools...</p>
+                      </div>
+                    ) : userTools.length === 0 ? (
+                      <div className="text-center py-8 glass rounded-xl border border-white/10">
+                        <p className="text-slate-500 text-sm">Belum ada tools aktif</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {userTools.map((userTool) => (
+                          <div key={userTool.id} className="glass rounded-xl p-4 border border-white/10 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="text-3xl">{userTool.tool?.icon || '🔧'}</div>
+                              <div>
+                                <p className="font-bold text-white">{userTool.tool?.name}</p>
+                                <p className="text-xs text-slate-400">
+                                  Akses sampai: <span className="text-emerald-400">{new Date(userTool.access_end).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleExtendAccess(userTool.tool_id, userTool.tool?.name || 'Tool')}
+                                disabled={saving}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors disabled:opacity-50"
+                              >
+                                Perpanjang
+                              </button>
+                              <button
+                                onClick={() => handleRevokeToolAccess(userTool.tool_id, userTool.tool?.name || 'Tool')}
+                                disabled={saving}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 text-white hover:bg-red-500 transition-colors disabled:opacity-50"
+                              >
+                                Hapus
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add New Tool Access */}
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                      ➕ Tambah Akses Tool
+                    </h4>
+                    <div className="glass rounded-xl p-5 border border-white/10 space-y-4">
+                      {/* Select Tool */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          Pilih Tool
+                        </label>
+                        <select
+                          value={selectedToolId}
+                          onChange={(e) => setSelectedToolId(e.target.value)}
+                          className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:border-purple-500 text-white"
+                        >
+                          <option value="">-- Pilih tool --</option>
+                          {availableTools
+                            .filter(tool => !userTools.some(ut => ut.tool_id === tool.id))
+                            .map(tool => (
+                              <option key={tool.id} value={tool.id}>
+                                {tool.icon} {tool.name}
+                              </option>
+                            ))
+                          }
+                        </select>
+                      </div>
+
+                      {/* Duration */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                          Durasi
+                        </label>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 hover:border-purple-500/50 transition-colors cursor-pointer">
+                            <input
+                              type="radio"
+                              value="7"
+                              checked={toolDuration === 7}
+                              onChange={(e) => setToolDuration(parseInt(e.target.value))}
+                              className="accent-purple-500"
+                            />
+                            <span className="text-sm text-white">7 Hari</span>
+                          </label>
+                          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 hover:border-purple-500/50 transition-colors cursor-pointer">
+                            <input
+                              type="radio"
+                              value="14"
+                              checked={toolDuration === 14}
+                              onChange={(e) => setToolDuration(parseInt(e.target.value))}
+                              className="accent-purple-500"
+                            />
+                            <span className="text-sm text-white">14 Hari</span>
+                          </label>
+                          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 hover:border-purple-500/50 transition-colors cursor-pointer">
+                            <input
+                              type="radio"
+                              value="30"
+                              checked={toolDuration === 30}
+                              onChange={(e) => setToolDuration(parseInt(e.target.value))}
+                              className="accent-purple-500"
+                            />
+                            <span className="text-sm text-white">30 Hari</span>
+                          </label>
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10">
+                            <input
+                              type="number"
+                              min="1"
+                              value={toolDuration}
+                              onChange={(e) => setToolDuration(parseInt(e.target.value) || 30)}
+                              className="w-16 px-2 py-1 bg-black/30 border border-white/10 rounded text-white text-sm text-center"
+                            />
+                            <span className="text-sm text-slate-400">hari</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Grant Button */}
+                      <button
+                        onClick={handleGrantToolAccess}
+                        disabled={!selectedToolId || saving}
+                        className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold hover:from-purple-500 hover:to-pink-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {saving ? 'Memproses...' : '✨ Berikan Akses'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="px-6 py-4 border-t border-white/10 flex justify-end">
+                  <button
+                    onClick={() => setShowToolsModal(false)}
+                    className="px-5 py-2.5 rounded-xl glass border border-white/10 text-white font-bold hover:border-purple-500/50 transition-all"
+                  >
+                    Tutup
+                  </button>
+                </div>
               </div>
             </div>
           )}

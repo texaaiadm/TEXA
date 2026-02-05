@@ -9,6 +9,7 @@ import {
   HeaderSettings,
   subscribeToHeaderSettings
 } from '../services/headerService';
+import { isUrlImageAllowed } from '../utils/iframePolicy';
 
 interface NavbarProps {
   user: TexaUser | null;
@@ -126,6 +127,8 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
   const { theme, toggleTheme } = useTheme();
   const [active, setActive] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const isDark = theme === 'dark';
   const [headerSettings, setHeaderSettings] = useState<HeaderSettings>(DEFAULT_HEADER_SETTINGS);
 
@@ -146,6 +149,10 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
     setActive(0);
   }, [active, navItems.length]);
 
+  const logoCandidate = headerSettings.logoUrl || DEFAULT_HEADER_SETTINGS.logoUrl;
+  const safeLogoUrl = !logoFailed && isUrlImageAllowed(logoCandidate) ? logoCandidate : '';
+  const safeAvatarUrl = user?.photoURL && !avatarFailed && isUrlImageAllowed(user.photoURL) ? user.photoURL : '';
+
   const handleNavClick = (item: HeaderNavItem | undefined, idx: number) => {
     setActive(idx);
     if (!item?.actionValue) return;
@@ -163,11 +170,19 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
         <div className="flex items-center gap-3 px-4 py-3">
           <Link to="/" className="flex items-center gap-3">
             <div className="logo-wrap" aria-hidden="true">
-              <img
-                className="logo-img"
-                alt={`${headerSettings.brandName || 'Logo'} Logo`}
-                src={headerSettings.logoUrl || DEFAULT_HEADER_SETTINGS.logoUrl}
-              />
+              {safeLogoUrl ? (
+                <img
+                  className="logo-img"
+                  alt={`${headerSettings.brandName || 'Logo'} Logo`}
+                  src={safeLogoUrl}
+                  onError={() => setLogoFailed(true)}
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="logo-img flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-300">
+                  {(headerSettings.brandName || DEFAULT_HEADER_SETTINGS.brandName || 'TX').slice(0, 2)}
+                </div>
+              )}
             </div>
             <div className="leading-tight">
               <StarBorder
@@ -209,11 +224,13 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
               className="icon-btn ring-focus overflow-hidden"
               aria-label={user ? 'Account' : 'Login'}
             >
-              {user?.photoURL ? (
+              {safeAvatarUrl ? (
                 <img
-                  src={user.photoURL}
-                  alt={user.name}
+                  src={safeAvatarUrl}
+                  alt={user?.name || 'User'}
                   className="w-full h-full object-cover"
+                  onError={() => setAvatarFailed(true)}
+                  referrerPolicy="no-referrer"
                 />
               ) : user ? (
                 <span className="text-xs font-bold title-text">{user.name[0].toUpperCase()}</span>

@@ -34,6 +34,7 @@ import {
   RevenueShareRole,
   formatIDR
 } from '../services/supabaseSubscriptionService';
+import { isUrlImageAllowed } from '../utils/iframePolicy';
 import {
   ExtensionSettings,
   DEFAULT_EXTENSION_SETTINGS,
@@ -2547,8 +2548,13 @@ const AdminDashboard: React.FC = () => {
                       <tr key={user.id} className="hover:bg-white/5 transition-colors group">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            {user.photoURL ? (
-                              <img src={user.photoURL} alt={user.name} className="w-10 h-10 rounded-full object-cover" />
+                            {user.photoURL && isUrlImageAllowed(user.photoURL) ? (
+                              <img
+                                src={user.photoURL}
+                                alt={user.name}
+                                className="w-10 h-10 rounded-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
                             ) : (
                               <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold">
                                 {user.name[0].toUpperCase()}

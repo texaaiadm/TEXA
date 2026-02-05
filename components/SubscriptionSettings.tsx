@@ -10,6 +10,7 @@ import {
     DEFAULT_SETTINGS
 } from '../services/supabaseSubscriptionService';
 import { supabase } from '../services/supabaseService';
+import { isUrlImageAllowed } from '../utils/iframePolicy';
 
 // Interface for catalog tool
 interface CatalogTool {
@@ -905,8 +906,13 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                                                     onClick={() => addToolToPackage(tool.id)}
                                                     className="w-full px-4 py-3 text-left hover:bg-indigo-500/20 transition-all flex items-center gap-3 border-b border-white/5 last:border-b-0"
                                                 >
-                                                    {tool.image_url && (
-                                                        <img src={tool.image_url} alt={tool.name} className="w-8 h-8 rounded-lg object-cover" />
+                                                    {tool.image_url && isUrlImageAllowed(tool.image_url) && (
+                                                        <img
+                                                            src={tool.image_url}
+                                                            alt={tool.name}
+                                                            className="w-8 h-8 rounded-lg object-cover"
+                                                            referrerPolicy="no-referrer"
+                                                        />
                                                     )}
                                                     <div>
                                                         <p className="text-sm text-white font-medium">{tool.name}</p>
@@ -928,8 +934,13 @@ const SubscriptionSettingsManager: React.FC<SubscriptionSettingsProps> = ({ show
                                         return (
                                             <div key={toolId} className="flex items-center justify-between px-3 py-2 bg-indigo-500/10 border border-indigo-500/30 rounded-lg">
                                                 <div className="flex items-center gap-2">
-                                                    {tool?.image_url && (
-                                                        <img src={tool.image_url} alt={tool?.name} className="w-6 h-6 rounded object-cover" />
+                                                    {tool?.image_url && isUrlImageAllowed(tool.image_url) && (
+                                                        <img
+                                                            src={tool.image_url}
+                                                            alt={tool?.name}
+                                                            className="w-6 h-6 rounded object-cover"
+                                                            referrerPolicy="no-referrer"
+                                                        />
                                                     )}
                                                     <span className="text-sm text-white">🛠️ {tool?.name || toolId}</span>
                                                 </div>

@@ -32,9 +32,28 @@ export const hasIndividualToolAccess = async (userId: string, toolId: string): P
     }
 };
 
-// Get all active tool accesses for a user
+// Get all active tool accesses for a user - uses API endpoint to bypass RLS
 export const getUserToolAccesses = async (userId: string): Promise<UserToolAccess[]> => {
     try {
+        // Use API endpoint which has service role key to bypass RLS
+        const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const apiBaseUrl = isDev ? 'http://127.0.0.1:8787' : '';
+
+        const response = await fetch(`${apiBaseUrl}/api/public/user-tools?userId=${userId}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+                console.log('[userToolsService] Got', result.data.length, 'active tools for user');
+                return result.data as UserToolAccess[];
+            }
+        }
+
+        console.warn('[userToolsService] API call failed, falling back to direct Supabase');
+        // Fallback to direct Supabase (may fail due to RLS)
         const now = new Date().toISOString();
         const { data, error } = await supabase
             .from('user_tools')
@@ -55,20 +74,17 @@ export const getUserToolAccesses = async (userId: string): Promise<UserToolAcces
 };
 
 // Check if user can access a tool (either via subscription or individual purchase)
+// UPDATED: Now checks user_tools table for BOTH subscription package tools and individual purchases
+// Subscription packages now store their included tools in user_tools on payment success
 export const canAccessTool = async (
     user: { id: string; subscriptionEnd?: string } | null,
     toolId: string
 ): Promise<boolean> => {
     if (!user) return false;
 
-    // Check subscription first
-    if (user.subscriptionEnd) {
-        const subEnd = new Date(user.subscriptionEnd);
-        if (subEnd > new Date()) {
-            return true; // Has active subscription
-        }
-    }
-
-    // Check individual tool access
+    // Check user_tools table for specific tool access
+    // This now handles BOTH:
+    // 1. Individual tool purchases (stored with access_end)
+    // 2. Subscription package tools (stored per-tool with package's access_end)
     return await hasIndividualToolAccess(user.id, toolId);
 };

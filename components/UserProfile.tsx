@@ -2,6 +2,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { TexaUser } from '../services/supabaseAuthService';
+import { isUrlImageAllowed } from '../utils/iframePolicy';
 
 interface UserProfileProps {
   user: TexaUser;
@@ -10,6 +11,7 @@ interface UserProfileProps {
 
 const UserProfile: React.FC<UserProfileProps> = ({ user, onLogout }) => {
   const navigate = useNavigate();
+  const safeAvatarUrl = user.photoURL && isUrlImageAllowed(user.photoURL) ? user.photoURL : '';
 
   const handleUpgrade = () => {
     // Navigate to marketplace where subscription packages are shown
@@ -37,11 +39,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLogout }) => {
         <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-600/10 blur-[100px] -mr-40 -mt-40"></div>
 
         <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10 relative z-10">
-          {user.photoURL ? (
+          {safeAvatarUrl ? (
             <img
-              src={user.photoURL}
+              src={safeAvatarUrl}
               alt={user.name}
               className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-3xl object-cover shadow-2xl rotate-3 border-4 border-indigo-500/30"
+              referrerPolicy="no-referrer"
             />
           ) : (
             <div className="w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-3xl premium-gradient flex items-center justify-center text-4xl sm:text-5xl font-black shadow-2xl rotate-3">

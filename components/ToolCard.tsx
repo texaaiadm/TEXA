@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AITool } from '../types';
 import { getSession } from '../services/supabaseAuthService';
 import { useNavigate } from 'react-router-dom';
-import { isUrlIframeAllowed } from '../utils/iframePolicy';
+import { isUrlIframeAllowed, isUrlImageAllowed } from '../utils/iframePolicy';
 import {
   subscribeToSettings,
   SubscriptionSettings,
@@ -77,6 +77,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
   const [showCheckoutPopup, setShowCheckoutPopup] = useState(false);
   const [showVideoPopup, setShowVideoPopup] = useState(false);
   const [showExtensionWarning, setShowExtensionWarning] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const [settings, setSettings] = useState<SubscriptionSettings>(DEFAULT_SETTINGS);
 
   // Get embed URL from video URL
@@ -149,7 +150,8 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
       return;
     }
 
-    const canIframe = tool.openMode === 'iframe' && isUrlIframeAllowed(tool.targetUrl);
+  const canIframe = tool.openMode === 'iframe' && isUrlIframeAllowed(tool.targetUrl);
+  const safeImageUrl = !imageFailed && isUrlImageAllowed(tool.imageUrl || '') ? tool.imageUrl : '';
 
     if (canIframe) {
       navigate(`/tool/${tool.id}`);
@@ -189,12 +191,20 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
     <>
       <div className="glass-card group rounded-[24px] md:rounded-[32px] overflow-hidden hover:border-indigo-500/40 transition-all duration-500 flex flex-col h-full relative smooth-animate">
         <div className="relative h-48 md:h-56 overflow-hidden">
-          <img
-            src={tool.imageUrl}
-            alt={tool.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-            loading="lazy"
-          />
+          {safeImageUrl ? (
+            <img
+              src={safeImageUrl}
+              alt={tool.name}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              loading="lazy"
+              onError={() => setImageFailed(true)}
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="w-full h-full bg-slate-900/60 flex items-center justify-center text-slate-400 text-xs font-bold uppercase tracking-widest">
+              {tool.category || 'Tool'}
+            </div>
+          )}
           <div className="absolute top-3 left-3 md:top-4 md:left-4 px-3 py-1 bg-black/60 backdrop-blur-xl rounded-full text-[8px] md:text-[10px] font-black uppercase tracking-widest text-indigo-300 border border-white/10">
             {tool.category}
           </div>
@@ -233,7 +243,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
             </button>
           )}
 
-          {/* Video Badge - Only show if no play button */}
+            {/* Video Badge - Only show if no play button */}
           {tool.embedVideoUrl && !embedUrl && (
             <div className="absolute top-3 right-3 md:top-4 md:right-4 px-2 py-1 bg-purple-600/80 backdrop-blur-xl rounded-full text-[8px] font-bold text-white flex items-center gap-1">
               🎬 Video
@@ -349,8 +359,18 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
 
             {/* Video Title */}
             <div className="absolute -top-12 left-0 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg overflow-hidden">
-                <img src={tool.imageUrl} alt={tool.name} className="w-full h-full object-cover" />
+              <div className="w-8 h-8 rounded-lg overflow-hidden bg-slate-900/60 flex items-center justify-center text-[8px] text-slate-400 font-bold uppercase">
+                {safeImageUrl ? (
+                  <img
+                    src={safeImageUrl}
+                    alt={tool.name}
+                    className="w-full h-full object-cover"
+                    onError={() => setImageFailed(true)}
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span>{tool.category?.slice(0, 2) || 'AI'}</span>
+                )}
               </div>
               <div>
                 <h3 className="text-white font-bold text-sm">{tool.name}</h3>

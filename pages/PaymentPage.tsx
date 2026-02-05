@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PAYMENT_METHODS, generateRefId, formatIDR } from '../services/tokopayService';
 import { getSession } from '../services/supabaseAuthService';
+import { subscribeToSettings, SubscriptionSettings, DEFAULT_SETTINGS } from '../services/supabaseSubscriptionService';
 
 interface PaymentMethod {
     code: string;
@@ -20,6 +21,13 @@ const PaymentPage: React.FC = () => {
     const [paymentResult, setPaymentResult] = useState<any>(null);
     const [session, setSession] = useState<any>(null);
     const [paymentStatus, setPaymentStatus] = useState<'pending' | 'paid' | 'checking'>('pending');
+    const [subscriptionSettings, setSubscriptionSettings] = useState<SubscriptionSettings>(DEFAULT_SETTINGS);
+
+    // Subscribe to subscription settings to get package includedToolIds
+    useEffect(() => {
+        const unsubscribe = subscribeToSettings((settings) => setSubscriptionSettings(settings));
+        return () => unsubscribe();
+    }, []);
 
     // Parse search params from hash URL (works with HashRouter)
     const searchParams = useMemo(() => {
@@ -34,6 +42,8 @@ const PaymentPage: React.FC = () => {
     const itemName = decodeURIComponent(searchParams.get('itemName') || '');
     const amount = parseInt(searchParams.get('amount') || '0');
     const duration = parseInt(searchParams.get('duration') || '30');
+    // NEW: Get includedToolIds from URL params (passed by CheckoutPopup for subscription orders)
+    const includedToolIdsFromUrl = searchParams.get('includedToolIds')?.split(',').filter(id => id.length > 0) || [];
 
     // Dev mode detection
     const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -51,6 +61,30 @@ const PaymentPage: React.FC = () => {
         };
         checkSession();
     }, [navigate]);
+
+    useEffect(() => {
+        if (paymentResult?.refId) return;
+        const pendingRaw = localStorage.getItem('pendingPayment');
+        if (!pendingRaw) return;
+        try {
+            const pending = JSON.parse(pendingRaw);
+            if (!pending?.refId) return;
+            setPaymentResult({
+                refId: pending.refId,
+                payUrl: pending.payUrl,
+                trxId: pending.trxId,
+                totalBayar: pending.totalBayar,
+                qrLink: pending.qrLink,
+                qrString: pending.qrString,
+                nomorVa: pending.nomorVa,
+                checkoutUrl: pending.checkoutUrl
+            });
+            if (paymentStatus !== 'paid') {
+                setPaymentStatus('checking');
+            }
+        } catch {
+        }
+    }, [paymentResult?.refId, paymentStatus]);
 
     // Poll for payment status when paymentResult is set
     useEffect(() => {
@@ -82,10 +116,14 @@ const PaymentPage: React.FC = () => {
                 const url = `${apiBaseUrl}/api/tokopay/check-status?refId=${paymentResult.refId}`;
                 console.log('[Payment] Fetching:', url);
                 const resp = await fetch(url);
+                if (!resp.ok) {
+                    throw new Error(`Status ${resp.status}`);
+                }
                 const data = await resp.json();
                 console.log('[Payment] Response:', data);
 
-                if (data.status === 'paid') {
+                const normalizedStatus = String(data.status || '').toLowerCase();
+                if (normalizedStatus === 'paid' || normalizedStatus === 'completed' || normalizedStatus === 'success') {
                     console.log('[Payment] PAID! Clearing interval');
                     clearInterval(pollInterval);
                     setPaymentStatus('paid');
@@ -131,6 +169,29 @@ const PaymentPage: React.FC = () => {
             const userId = session.user.id;
             const userEmail = session.user.email;
 
+            // For subscription orders, get includedToolIds - prioritize URL params over settings
+            // URL params are more reliable since they're set by CheckoutPopup which has loaded settings
+            let includedToolIds: string[] = [];
+            if (type === 'subscription') {
+                // First try URL params (set by CheckoutPopup)
+                if (includedToolIdsFromUrl.length > 0) {
+                    includedToolIds = includedToolIdsFromUrl;
+                    console.log('[Payment] Using includedToolIds from URL:', includedToolIds);
+                }
+                // Fallback to settings lookup
+                else if (itemId) {
+                    const pkg = subscriptionSettings.packages.find(p => p.id === itemId);
+                    if (pkg?.includedToolIds && pkg.includedToolIds.length > 0) {
+                        includedToolIds = pkg.includedToolIds;
+                        console.log('[Payment] Using includedToolIds from settings:', includedToolIds);
+                    }
+                }
+
+                if (includedToolIds.length === 0) {
+                    console.warn('[Payment] WARNING: No includedToolIds found for subscription package!');
+                }
+            }
+
             // Call our API to create TokoPay order
             const response = await fetch(`${apiBaseUrl}/api/tokopay/create-order`, {
                 method: 'POST',
@@ -146,9 +207,11 @@ const PaymentPage: React.FC = () => {
                     type,
                     itemId,
                     itemName,
-                    duration
+                    duration,
+                    includedToolIds // NEW: Send included tool IDs for subscription orders
                 })
             });
+
 
             const result = await response.json();
 
@@ -162,6 +225,12 @@ const PaymentPage: React.FC = () => {
                     duration,
                     amount,
                     payUrl: result.data.payUrl,
+                    trxId: result.data.trxId,
+                    totalBayar: result.data.totalBayar,
+                    qrLink: result.data.qrLink,
+                    qrString: result.data.qrString,
+                    nomorVa: result.data.nomorVa,
+                    checkoutUrl: result.data.checkoutUrl,
                     createdAt: new Date().toISOString()
                 }));
 
@@ -379,7 +448,7 @@ const PaymentPage: React.FC = () => {
                                     {/* Amount */}
                                     <div className="bg-white/5 rounded-xl p-4 mb-6">
                                         <p className="text-slate-400 text-xs mb-1">Total Bayar</p>
-                                        <p className="text-2xl font-black text-emerald-400">{formatIDR(paymentResult.totalBayar)}</p>
+                                        <p className="text-2xl font-black text-emerald-400">{formatIDR(paymentResult.totalBayar || amount)}</p>
                                     </div>
 
                                     {/* Open Payment Page Button */}

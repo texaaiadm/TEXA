@@ -9,6 +9,7 @@ import {
     DEFAULT_SETTINGS
 } from '../services/supabaseSubscriptionService';
 import { getSession } from '../services/supabaseAuthService';
+import { isUrlImageAllowed } from '../utils/iframePolicy';
 import { supabase } from '../services/supabaseService';
 
 // Interface for catalog tool
@@ -31,6 +32,7 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
     const [selectedPackage, setSelectedPackage] = useState<string>('');
     const [selectedDuration, setSelectedDuration] = useState<7 | 14 | 30>(7);
     const [purchaseType, setPurchaseType] = useState<'individual' | 'subscription'>('individual');
+    const [imageFailed, setImageFailed] = useState(false);
 
     // Catalog tools for displaying tool icons in subscription packages
     const [catalogTools, setCatalogTools] = useState<CatalogTool[]>([]);
@@ -170,18 +172,24 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
         }
 
         // Redirect to internal payment page with TokoPay integration
+        // Include includedToolIds in URL so PaymentPage has them immediately
+        const toolIdsParam = (pkg.includedToolIds || []).join(',');
         const params = new URLSearchParams({
             type: 'subscription',
             itemId: pkg.id,
             itemName: pkg.name,
             amount: String(pkg.discountPrice || pkg.price),
             duration: String(pkg.duration),
-            packageId: pkg.id
+            packageId: pkg.id,
+            includedToolIds: toolIdsParam // NEW: Pass tool IDs directly
         });
 
+        console.log('[CheckoutPopup] Passing includedToolIds:', pkg.includedToolIds);
         window.location.hash = `/payment?${params.toString()}`;
         onClose();
     };
+
+    const safeToolImage = !imageFailed && isUrlImageAllowed(tool.imageUrl || '') ? tool.imageUrl : '';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -203,12 +211,18 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
                     </button>
 
                     <div className="flex items-center gap-4">
-                        {tool.imageUrl && (
+                        {safeToolImage ? (
                             <img
-                                src={tool.imageUrl}
+                                src={safeToolImage}
                                 alt={tool.name}
                                 className="w-14 h-14 rounded-xl object-cover border border-white/10"
+                                onError={() => setImageFailed(true)}
+                                referrerPolicy="no-referrer"
                             />
+                        ) : (
+                            <div className="w-14 h-14 rounded-xl bg-indigo-500/20 border border-white/10 flex items-center justify-center text-indigo-200 text-xs font-bold">
+                                {tool.category?.slice(0, 2) || 'AI'}
+                            </div>
                         )}
                         <div>
                             <h3 className="text-xl font-black text-white">{tool.name}</h3>
@@ -377,11 +391,12 @@ const CheckoutPopup: React.FC<CheckoutPopupProps> = ({ tool, isOpen, onClose }) 
                                             key={tool.id}
                                             className="flex items-center gap-2 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-all"
                                         >
-                                            {tool.image_url ? (
+                                            {tool.image_url && isUrlImageAllowed(tool.image_url) ? (
                                                 <img
                                                     src={tool.image_url}
                                                     alt={tool.name}
                                                     className="w-8 h-8 rounded-lg object-cover border border-white/10"
+                                                    referrerPolicy="no-referrer"
                                                 />
                                             ) : (
                                                 <div className="w-8 h-8 rounded-lg bg-indigo-500/30 flex items-center justify-center">

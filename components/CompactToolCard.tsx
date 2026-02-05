@@ -4,7 +4,7 @@ import { AITool } from '../types';
 import { formatIDR, subscribeToSettings, SubscriptionSettings, DEFAULT_SETTINGS } from '../services/supabaseSubscriptionService';
 import { useNavigate } from 'react-router-dom';
 import { getSession } from '../services/supabaseAuthService';
-import { isUrlIframeAllowed } from '../utils/iframePolicy';
+import { isUrlIframeAllowed, isUrlImageAllowed } from '../utils/iframePolicy';
 import { checkExtensionInstalled } from '../services/extensionService';
 import { usePopupState } from '../services/popupContext';
 import ExtensionWarningPopup from './ExtensionWarningPopup';
@@ -22,6 +22,7 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
     const [showCheckoutPopup, setShowCheckoutPopup] = useState(false);
     const [showExtensionWarning, setShowExtensionWarning] = useState(false);
     const [settings, setSettings] = useState<SubscriptionSettings>(DEFAULT_SETTINGS);
+    const [imageFailed, setImageFailed] = useState(false);
 
     // Register popup states
     usePopupState(showCheckoutPopup || showExtensionWarning);
@@ -113,6 +114,8 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
         }, 800);
     };
 
+    const safeImageUrl = !imageFailed && isUrlImageAllowed(tool.imageUrl || '') ? tool.imageUrl : '';
+
     return (
         <>
             {/* Card - Silver Doff Metal Plate (light) / Dark Glass (dark) */}
@@ -122,12 +125,20 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
             >
                 {/* Image Container */}
                 <div className="relative h-28 sm:h-32 overflow-hidden bg-slate-400 dark:bg-slate-700">
-                    <img
-                        src={tool.imageUrl}
-                        alt={tool.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        loading="lazy"
-                    />
+                    {safeImageUrl ? (
+                        <img
+                            src={safeImageUrl}
+                            alt={tool.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            loading="lazy"
+                            onError={() => setImageFailed(true)}
+                            referrerPolicy="no-referrer"
+                        />
+                    ) : (
+                        <div className="w-full h-full bg-slate-900/50 flex items-center justify-center text-[10px] font-bold uppercase tracking-widest text-slate-300">
+                            {tool.category || 'Tool'}
+                        </div>
+                    )}
 
                     {/* Category Badge */}
                     <div className="absolute top-2 left-2 px-2 py-0.5 bg-indigo-600/95 dark:bg-indigo-700/95 backdrop-blur-sm rounded-md text-[8px] md:text-[9px] font-bold text-white uppercase tracking-wide shadow-lg">
@@ -157,30 +168,26 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
                         <div>
                             <span className="text-[8px] text-zinc-500 dark:text-zinc-500 uppercase tracking-widest font-medium">Mulai</span>
                             {(() => {
-                                // Use individual tool pricing from catalog (proper null checks)
-                                // Priority: individualPrice > priceMonthly > defaultToolPrice > 15000
-                                const price = tool.individualPrice != null && tool.individualPrice > 0
-                                    ? tool.individualPrice
-                                    : (tool.priceMonthly != null && tool.priceMonthly > 0)
-                                        ? tool.priceMonthly
+                                // Use multi-tier pricing from admin dashboard
+                                // Priority: price7Days > priceMonthly > defaultToolPrice > 15000
+                                // Note: Admin sets price_7_days in database which becomes price7Days in frontend
+                                const toolAny = tool as any;
+                                const price7 = toolAny.price7Days ?? 0;
+                                const priceMonthly = tool.priceMonthly ?? 0;
+
+                                const price = price7 > 0
+                                    ? price7
+                                    : priceMonthly > 0
+                                        ? priceMonthly
                                         : (settings.defaultToolPrice || 15000);
-                                const discount = tool.individualDiscount != null && tool.individualDiscount > 0
-                                    ? tool.individualDiscount
-                                    : undefined;
-                                const duration = tool.individualDuration != null && tool.individualDuration > 0
-                                    ? tool.individualDuration
-                                    : (settings.defaultToolDuration || 7);
+
+                                // Duration: 7 days for price7Days, 30 for priceMonthly
+                                const duration = price7 > 0 ? 7 : 30;
+
                                 return (
                                     <>
                                         <div className="flex items-baseline gap-1">
-                                            {discount ? (
-                                                <>
-                                                    <span className="text-sm sm:text-base font-bold text-emerald-500">{formatIDR(discount)}</span>
-                                                    <span className="text-[9px] text-slate-500 line-through">{formatIDR(price)}</span>
-                                                </>
-                                            ) : (
-                                                <span className="text-sm sm:text-base font-bold text-zinc-800 dark:text-zinc-100">{formatIDR(price)}</span>
-                                            )}
+                                            <span className="text-sm sm:text-base font-bold text-zinc-800 dark:text-zinc-100">{formatIDR(price)}</span>
                                         </div>
                                         <span className="text-[8px] text-zinc-500">/{duration} hari</span>
                                     </>

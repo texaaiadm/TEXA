@@ -41,3 +41,41 @@ export const isUrlIframeAllowed = (value: string): boolean => {
   return patterns.some((p) => matchHostPattern(host, p));
 };
 
+const getImageBlockedHostPatterns = (): string[] => {
+  const raw = (import.meta.env.VITE_IMAGE_BLOCKED_HOSTS || '').trim();
+  const fromEnv = raw
+    ? raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  return Array.from(
+    new Set(
+      [
+        'lh3.googleusercontent.com',
+        'img.freepik.com',
+        'freepik.com',
+        'www.freepik.com',
+        'deepseek.com',
+        'www.deepseek.com',
+        ...fromEnv
+      ].map((h) => h.toLowerCase())
+    )
+  );
+};
+
+export const isUrlImageAllowed = (value: string): boolean => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return true;
+  if (trimmed.startsWith('/')) return true;
+
+  const host = getHostFromUrl(trimmed);
+  if (!host) return false;
+  if (host === window.location.host.toLowerCase()) return true;
+
+  const blocked = getImageBlockedHostPatterns();
+  return !blocked.some((p) => matchHostPattern(host, p));
+};
+

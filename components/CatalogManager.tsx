@@ -15,7 +15,7 @@ import {
     Category,
     CatalogItem
 } from '../services/supabaseCatalogService';
-import { getIframeAllowedHostPatterns, isUrlIframeAllowed } from '../utils/iframePolicy';
+import { getIframeAllowedHostPatterns, isUrlIframeAllowed, isUrlImageAllowed } from '../utils/iframePolicy';
 
 interface CatalogManagerProps {
     showToast: (message: string, type: 'success' | 'error') => void;
@@ -37,6 +37,11 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
     const [newCategoryName, setNewCategoryName] = useState('');
     const [editingCategory, setEditingCategory] = useState<Category | null>(null);
     const [categoryLoading, setCategoryLoading] = useState(false);
+
+    const getSafeImageUrl = (value?: string | null) => {
+        const trimmed = (value || '').trim();
+        return isUrlImageAllowed(trimmed) ? trimmed : '';
+    };
 
     // Form state
     const [formData, setFormData] = useState({
@@ -385,37 +390,43 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                         </p>
                     </div>
                 ) : (
-                    filteredItems.map((item) => (
-                        <div
-                            key={item.id}
-                            className={`glass rounded-2xl border overflow-hidden group transition-all hover:scale-[1.02] ${item.status === 'active' ? 'border-white/10' : 'border-red-500/30 opacity-60'
-                                }`}
-                        >
-                            {/* Image */}
-                            <div className="relative h-32 overflow-hidden">
-                                <img
-                                    src={item.imageUrl}
-                                    alt={item.name}
-                                    className="w-full h-full object-cover transition-transform group-hover:scale-110"
-                                    onError={(e) => {
-                                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400x200?text=No+Image';
-                                    }}
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
-                                <div className="absolute top-3 left-3">
-                                    <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${item.status === 'active'
-                                        ? 'bg-emerald-500/30 text-emerald-300'
-                                        : 'bg-red-500/30 text-red-300'
-                                        }`}>
-                                        {item.status === 'active' ? '✓ Aktif' : '✗ Nonaktif'}
-                                    </span>
+                    filteredItems.map((item) => {
+                        const safeImageUrl = getSafeImageUrl(item.imageUrl);
+                        return (
+                            <div
+                                key={item.id}
+                                className={`glass rounded-2xl border overflow-hidden group transition-all hover:scale-[1.02] ${item.status === 'active' ? 'border-white/10' : 'border-red-500/30 opacity-60'
+                                    }`}
+                            >
+                                {/* Image */}
+                                <div className="relative h-32 overflow-hidden">
+                                    {safeImageUrl ? (
+                                        <img
+                                            src={safeImageUrl}
+                                            alt={item.name}
+                                            className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                                            referrerPolicy="no-referrer"
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full bg-slate-900/70 flex items-center justify-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                                            {item.category || 'Tool'}
+                                        </div>
+                                    )}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+                                    <div className="absolute top-3 left-3">
+                                        <span className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${item.status === 'active'
+                                            ? 'bg-emerald-500/30 text-emerald-300'
+                                            : 'bg-red-500/30 text-red-300'
+                                            }`}>
+                                            {item.status === 'active' ? '✓ Aktif' : '✗ Nonaktif'}
+                                        </span>
+                                    </div>
+                                    <div className="absolute top-3 right-3">
+                                        <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/50 text-white">
+                                            {item.category}
+                                        </span>
+                                    </div>
                                 </div>
-                                <div className="absolute top-3 right-3">
-                                    <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/50 text-white">
-                                        {item.category}
-                                    </span>
-                                </div>
-                            </div>
 
                             {/* Content */}
                             <div className="p-4">
@@ -477,8 +488,9 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                                     </button>
                                 </div>
                             </div>
-                        </div>
-                    ))
+                            </div>
+                        );
+                    })
                 )}
             </div>
 
@@ -556,18 +568,20 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                                             placeholder="https://example.com/image.jpg"
                                             className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white focus:outline-none focus:border-indigo-500"
                                         />
-                                        {formData.imageUrl && (
+                                        {getSafeImageUrl(formData.imageUrl) ? (
                                             <div className="mt-2 rounded-xl overflow-hidden h-24">
                                                 <img
-                                                    src={formData.imageUrl}
+                                                    src={getSafeImageUrl(formData.imageUrl)}
                                                     alt="Preview"
                                                     className="w-full h-full object-cover"
-                                                    onError={(e) => {
-                                                        (e.target as HTMLImageElement).style.display = 'none';
-                                                    }}
+                                                    referrerPolicy="no-referrer"
                                                 />
                                             </div>
-                                        )}
+                                        ) : formData.imageUrl ? (
+                                            <div className="mt-2 rounded-xl h-24 flex items-center justify-center bg-slate-900/60 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                                Gambar tidak tersedia
+                                            </div>
+                                        ) : null}
                                     </div>
 
                                     {/* Target URL */}
@@ -877,11 +891,18 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
 
                                 <div className="glass rounded-xl p-4 mb-6 border border-white/10">
                                     <div className="flex items-center gap-3">
-                                        <img
-                                            src={selectedItem.imageUrl}
-                                            alt={selectedItem.name}
-                                            className="w-16 h-16 rounded-lg object-cover"
-                                        />
+                                        {getSafeImageUrl(selectedItem.imageUrl) ? (
+                                            <img
+                                                src={getSafeImageUrl(selectedItem.imageUrl)}
+                                                alt={selectedItem.name}
+                                                className="w-16 h-16 rounded-lg object-cover"
+                                                referrerPolicy="no-referrer"
+                                            />
+                                        ) : (
+                                            <div className="w-16 h-16 rounded-lg bg-slate-900/60 flex items-center justify-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                                {selectedItem.category?.slice(0, 2) || 'AI'}
+                                            </div>
+                                        )}
                                         <div>
                                             <p className="font-bold text-white">{selectedItem.name}</p>
                                             <p className="text-xs text-slate-400">{selectedItem.category}</p>

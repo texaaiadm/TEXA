@@ -214,17 +214,11 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
     ? tools
     : tools.filter(t => t.category === filter);
 
-  // Check if user has active subscription
-  const hasActiveSubscription = user?.subscriptionEnd
-    ? new Date(user.subscriptionEnd) > new Date()
-    : false;
-
   // Helper function to check access for a specific tool
+  // FIXED: Now only checks user_tools table for specific tool access
+  // Both subscription package tools AND individual purchases are stored in user_tools
   const hasAccessToTool = (toolId: string): boolean => {
-    // Has subscription = access to all tools
-    if (hasActiveSubscription) return true;
-
-    // Check individual tool purchase
+    // Check if user has access to this specific tool via user_tools table
     return userToolAccesses.some(access => access.tool_id === toolId);
   };
 

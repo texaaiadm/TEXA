@@ -185,7 +185,7 @@ const computeSubscriptionEnd = (days) => {
 
 const handleTokopayCreateOrder = async (req, res) => {
   const body = await readBody(req);
-  const { refId, nominal, metode, userId, userEmail, type, itemId, itemName, duration } = body;
+  const { refId, nominal, metode, userId, userEmail, type, itemId, itemName, duration, includedToolIds } = body;
 
   // Validate required fields
   if (!refId || !nominal || !metode) {
@@ -234,6 +234,8 @@ const handleTokopayCreateOrder = async (req, res) => {
             pay_url: tokopayResult.data.pay_url,
             total_bayar: tokopayResult.data.total_bayar,
             total_diterima: tokopayResult.data.total_diterima,
+            // NEW: Store included tool IDs for subscription orders
+            included_tool_ids: Array.isArray(includedToolIds) ? includedToolIds : [],
             created_at: now,
             updated_at: now
           };
@@ -359,6 +361,45 @@ const handleTokopayWebhook = async (req, res) => {
 
                 if (userUpdateResp.ok) {
                   console.log('✅ User subscription activated:', order.user_id, 'until', sub.end.toISOString());
+
+                  // NEW: Activate user_tools for each included tool in the package
+                  const includedTools = order.included_tool_ids || [];
+                  if (Array.isArray(includedTools) && includedTools.length > 0) {
+                    console.log('🔧 [webhook] Activating subscription tools:', includedTools);
+
+                    for (const toolId of includedTools) {
+                      try {
+                        const toolInsertResp = await supabaseFetch('/rest/v1/user_tools', {
+                          method: 'POST',
+                          headers: { 'Prefer': 'return=representation' },
+                          body: JSON.stringify({
+                            user_id: order.user_id,
+                            tool_id: toolId,
+                            access_end: sub.end.toISOString(),
+                            order_ref_id: payload.reff_id
+                          })
+                        });
+
+                        if (toolInsertResp.ok) {
+                          console.log('✅ [webhook] Tool access granted:', toolId);
+                        } else {
+                          const errText = await toolInsertResp.text();
+                          if (errText.includes('duplicate') || errText.includes('unique')) {
+                            await supabaseFetch(`/rest/v1/user_tools?user_id=eq.${order.user_id}&tool_id=eq.${toolId}`, {
+                              method: 'PATCH',
+                              body: JSON.stringify({
+                                access_end: sub.end.toISOString(),
+                                order_ref_id: payload.reff_id
+                              })
+                            });
+                            console.log('✅ [webhook] Tool access updated:', toolId);
+                          }
+                        }
+                      } catch (toolErr) {
+                        console.error('❌ [webhook] Error activating tool:', toolId, toolErr);
+                      }
+                    }
+                  }
                 } else {
                   console.error('Error updating user subscription:', await userUpdateResp.text());
                 }
@@ -386,6 +427,7 @@ const handleTokopayWebhook = async (req, res) => {
         }
       } catch (e) {
         console.error('Supabase order update error:', e);
+
       }
     }
 
@@ -702,11 +744,11 @@ const server = http.createServer(async (req, res) => {
 
             // TokoPay returns status: "Success" when API call succeeds, then check data.status for payment status
             if (tokopayStatus.status === 'Success' && tokopayStatus.data) {
-              const paymentStatus = tokopayStatus.data.status; // "Paid", "Completed", "Unpaid", "Expired", "Failed"
+              const paymentStatus = tokopayStatus.data.status;
+              const normalizedStatus = String(paymentStatus || '').toLowerCase();
               console.log('📥 Payment status from data.status:', paymentStatus);
 
-              // Accept both "Paid" and "Completed" as successful payment
-              if (paymentStatus === 'Paid' || paymentStatus === 'Completed') {
+              if (['paid', 'completed', 'success', 'settlement', 'settled'].includes(normalizedStatus)) {
                 console.log('✅ [check-status] TokoPay confirmed', paymentStatus, '! Updating order...');
 
                 const now = new Date();
@@ -764,9 +806,26 @@ const server = http.createServer(async (req, res) => {
           // For subscription: check if subscription is not set or expired
           // For individual: always check user_tools table
           let needsActivation = false;
+          // For subscriptions with included tools, ALWAYS check if tools are missing
+          let needsToolActivation = false;
 
           if (isSubscription) {
             needsActivation = !user?.subscription_end || new Date(user.subscription_end) < now;
+
+            // CRITICAL: Also check if included tools are missing from user_tools
+            // This ensures tools are activated even if subscription_end is already set
+            const includedTools = order.included_tool_ids || [];
+            if (Array.isArray(includedTools) && includedTools.length > 0) {
+              for (const toolId of includedTools) {
+                const toolCheckResp = await supabaseFetch(`/rest/v1/user_tools?user_id=eq.${order.user_id}&tool_id=eq.${toolId}&select=id`);
+                const existingTools = toolCheckResp.ok ? await toolCheckResp.json() : [];
+                if (existingTools.length === 0) {
+                  needsToolActivation = true;
+                  console.log('🔧 [check-status] Tool missing, needs activation:', toolId);
+                  break;
+                }
+              }
+            }
           } else if (isIndividual) {
             // Check if tool access already exists
             const toolResp = await supabaseFetch(`/rest/v1/user_tools?user_id=eq.${order.user_id}&tool_id=eq.${order.item_id}&select=access_end`);
@@ -774,12 +833,18 @@ const server = http.createServer(async (req, res) => {
             needsActivation = tools.length === 0 || new Date(tools[0].access_end) < now;
           }
 
+          // Force activation if tools are missing
+          if (needsToolActivation) {
+            needsActivation = true;
+            console.log('🔧 [check-status] Forcing activation due to missing tools');
+          }
+
           if (needsActivation) {
             const duration = order.duration || 30;
             const nowIso = now.toISOString();
 
             if (isSubscription) {
-              // Activate subscription
+              // Activate subscription with included tools
               const sub = computeSubscriptionEnd(duration);
               if (sub) {
                 const userUpdateResp = await supabaseFetch(`/rest/v1/users?id=eq.${order.user_id}`, {
@@ -792,6 +857,51 @@ const server = http.createServer(async (req, res) => {
 
                 if (userUpdateResp.ok) {
                   console.log('✅ [check-status] Subscription activated for:', order.user_id, 'until', sub.end.toISOString());
+
+                  // NEW: Activate user_tools for each included tool in the package
+                  const includedTools = order.included_tool_ids || [];
+                  if (Array.isArray(includedTools) && includedTools.length > 0) {
+                    console.log('🔧 [check-status] Activating subscription tools:', includedTools);
+
+                    for (const toolId of includedTools) {
+                      try {
+                        // Try insert first
+                        const toolInsertResp = await supabaseFetch('/rest/v1/user_tools', {
+                          method: 'POST',
+                          headers: { 'Prefer': 'return=representation' },
+                          body: JSON.stringify({
+                            user_id: order.user_id,
+                            tool_id: toolId,
+                            access_end: sub.end.toISOString(),
+                            order_ref_id: refId
+                          })
+                        });
+
+                        if (toolInsertResp.ok) {
+                          console.log('✅ [check-status] Tool access granted:', toolId);
+                        } else {
+                          const errText = await toolInsertResp.text();
+                          // If duplicate, update instead
+                          if (errText.includes('duplicate') || errText.includes('unique')) {
+                            await supabaseFetch(`/rest/v1/user_tools?user_id=eq.${order.user_id}&tool_id=eq.${toolId}`, {
+                              method: 'PATCH',
+                              body: JSON.stringify({
+                                access_end: sub.end.toISOString(),
+                                order_ref_id: refId
+                              })
+                            });
+                            console.log('✅ [check-status] Tool access updated:', toolId);
+                          } else {
+                            console.error('❌ [check-status] Failed to grant tool access:', toolId, errText);
+                          }
+                        }
+                      } catch (toolErr) {
+                        console.error('❌ [check-status] Error activating tool:', toolId, toolErr);
+                      }
+                    }
+                  } else {
+                    console.log('ℹ️ [check-status] No included tools in subscription package');
+                  }
 
                   // Create transaction record if not exists
                   await supabaseFetch('/rest/v1/texa_transactions', {
@@ -966,6 +1076,32 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
         }
       } catch (e) {
         console.error('Get public tools error:', e);
+        return json(res, 500, { success: false, message: 'Server error' });
+      }
+    }
+
+    // ==================== Public User Tools Endpoint (Bypass RLS) ====================
+    // Used by frontend to check user's tool accesses - bypasses RLS using service role key
+    if (req.method === 'GET' && url.pathname === '/api/public/user-tools') {
+      const userId = url.searchParams.get('userId');
+      if (!userId) {
+        return json(res, 400, { success: false, message: 'userId parameter required' });
+      }
+
+      try {
+        const now = new Date().toISOString();
+        const response = await supabaseFetch(`/rest/v1/user_tools?user_id=eq.${userId}&access_end=gt.${now}&select=*`);
+        if (response.ok) {
+          const tools = await response.json();
+          console.log('[user-tools] Found', tools.length, 'active tools for user:', userId);
+          return json(res, 200, { success: true, data: tools });
+        } else {
+          const errText = await response.text();
+          console.error('[user-tools] Supabase error:', errText);
+          return json(res, 500, { success: false, message: 'Gagal mengambil data user tools' });
+        }
+      } catch (e) {
+        console.error('Get user tools error:', e);
         return json(res, 500, { success: false, message: 'Server error' });
       }
     }

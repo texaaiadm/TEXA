@@ -55,7 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const { refId, nominal, metode, userId, userEmail, type, itemId, itemName, duration } = req.body;
+        const { refId, nominal, metode, userId, userEmail, type, itemId, itemName, duration, includedToolIds } = req.body;
 
         // Validate required fields
         if (!refId || !nominal || !metode) {
@@ -102,6 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                         pay_url: tokopayResult.data.pay_url,
                         total_bayar: tokopayResult.data.total_bayar,
                         total_diterima: tokopayResult.data.total_diterima,
+                        included_tool_ids: includedToolIds || [],
                         created_at: now,
                         updated_at: now
                     };

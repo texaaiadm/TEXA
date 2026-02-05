@@ -147,6 +147,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                             updated_at: nowIso
                         })
                         .eq('id', order.user_id);
+
+                    // CRITICAL: Activate user_tools for each included tool in the package
+                    const includedTools = order.included_tool_ids || [];
+                    if (Array.isArray(includedTools) && includedTools.length > 0) {
+                        console.log('[check-status] Activating subscription tools:', includedTools);
+
+                        for (const toolId of includedTools) {
+                            try {
+                                // Check if tool already exists for this user
+                                const { data: existingToolData } = await supabase
+                                    .from('user_tools')
+                                    .select('id')
+                                    .eq('user_id', order.user_id)
+                                    .eq('tool_id', toolId)
+                                    .limit(1);
+
+                                if (existingToolData && existingToolData.length > 0) {
+                                    // Update existing
+                                    await supabase
+                                        .from('user_tools')
+                                        .update({
+                                            access_end: end.toISOString(),
+                                            order_ref_id: refId
+                                        })
+                                        .eq('user_id', order.user_id)
+                                        .eq('tool_id', toolId);
+                                    console.log('[check-status] Tool access updated:', toolId);
+                                } else {
+                                    // Insert new
+                                    await supabase
+                                        .from('user_tools')
+                                        .insert({
+                                            user_id: order.user_id,
+                                            tool_id: toolId,
+                                            access_end: end.toISOString(),
+                                            order_ref_id: refId,
+                                            created_at: nowIso
+                                        });
+                                    console.log('[check-status] Tool access granted:', toolId);
+                                }
+                            } catch (toolErr) {
+                                console.error('[check-status] Error activating tool:', toolId, toolErr);
+                            }
+                        }
+                    }
                 }
             } else if (isIndividual && order.item_id) {
                 const { data: tools } = await supabase

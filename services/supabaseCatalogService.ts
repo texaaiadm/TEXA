@@ -35,9 +35,39 @@ export interface Category {
 // CATEGORY FUNCTIONS (Supabase)
 // ============================================
 
-// Get all categories 
+// Get admin API base URL
+const getAdminApiUrl = () => {
+    const isDev = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    return isDev ? 'http://127.0.0.1:8787' : '';
+};
+
+// Get all categories (use admin API to bypass RLS)
 export const getCategories = async (): Promise<Category[]> => {
     try {
+        // Try admin API first (uses service role key)
+        const apiUrl = getAdminApiUrl();
+        const response = await fetch(`${apiUrl}/api/admin/categories`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+                console.log('[categories] Loaded', result.data.length, 'via admin API');
+                return result.data.map((cat: any) => ({
+                    id: cat.id,
+                    name: cat.name,
+                    order: cat.order || 0,
+                    createdAt: cat.created_at,
+                    updatedAt: cat.updated_at
+                }));
+            }
+        }
+
+        // Fallback to direct Supabase (may fail due to RLS)
+        console.log('[categories] Admin API failed, trying direct Supabase...');
         const { data, error } = await supabase
             .from('categories')
             .select('*')
@@ -53,8 +83,7 @@ export const getCategories = async (): Promise<Category[]> => {
         }
 
         if (!data || data.length === 0) {
-            // Seed default categories if empty
-            await seedDefaultCategories();
+            // Return default categories immediately
             return DEFAULT_CATEGORIES.map((name, index) => ({
                 id: `default-${index}`,
                 name,
@@ -128,9 +157,26 @@ export const seedDefaultCategories = async (): Promise<boolean> => {
     }
 };
 
-// Add category
+// Add category (use admin API to bypass RLS)
 export const addCategory = async (name: string): Promise<string | null> => {
     try {
+        const apiUrl = getAdminApiUrl();
+        const response = await fetch(`${apiUrl}/api/admin/categories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim() })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+                console.log('[categories] Added via admin API:', name);
+                return result.data.id || result.data;
+            }
+        }
+
+        // Fallback to direct Supabase (may fail due to RLS)
+        console.log('[categories] Admin API failed, trying direct Supabase...');
         const { data: existing } = await supabase
             .from('categories')
             .select('order')

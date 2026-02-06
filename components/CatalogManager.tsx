@@ -428,66 +428,77 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                                     </div>
                                 </div>
 
-                            {/* Content */}
-                            <div className="p-4">
-                                <h3 className="font-bold text-white text-lg mb-1">{item.name}</h3>
-                                <p className="text-slate-400 text-xs line-clamp-2 mb-3">{item.description}</p>
+                                {/* Content */}
+                                <div className="p-4">
+                                    <h3 className="font-bold text-white text-lg mb-1">{item.name}</h3>
+                                    <p className="text-slate-400 text-xs line-clamp-2 mb-3">{item.description}</p>
 
-                                {/* Extension Data Indicators */}
-                                {(item.cookiesData || item.apiUrl || item.embedVideoUrl) && (
-                                    <div className="flex items-center gap-2 mb-3 flex-wrap">
-                                        {item.cookiesData && (
-                                            <span className="px-2 py-1 rounded-lg text-[9px] font-bold bg-amber-500/20 text-amber-400 flex items-center gap-1">
-                                                🍪 Cookies
-                                            </span>
-                                        )}
-                                        {item.apiUrl && (
-                                            <span className="px-2 py-1 rounded-lg text-[9px] font-bold bg-cyan-500/20 text-cyan-400 flex items-center gap-1">
-                                                🔗 API
-                                            </span>
-                                        )}
-                                        {item.embedVideoUrl && (
-                                            <span className="px-2 py-1 rounded-lg text-[9px] font-bold bg-purple-500/20 text-purple-400 flex items-center gap-1">
-                                                🎬 Video
-                                            </span>
-                                        )}
+                                    {/* Extension Data Indicators */}
+                                    {(item.cookiesData || item.apiUrl || item.embedVideoUrl) && (
+                                        <div className="flex items-center gap-2 mb-3 flex-wrap">
+                                            {item.cookiesData && (
+                                                <span className="px-2 py-1 rounded-lg text-[9px] font-bold bg-amber-500/20 text-amber-400 flex items-center gap-1">
+                                                    🍪 Cookies
+                                                </span>
+                                            )}
+                                            {item.apiUrl && (
+                                                <span className="px-2 py-1 rounded-lg text-[9px] font-bold bg-cyan-500/20 text-cyan-400 flex items-center gap-1">
+                                                    🔗 API
+                                                </span>
+                                            )}
+                                            {item.embedVideoUrl && (
+                                                <span className="px-2 py-1 rounded-lg text-[9px] font-bold bg-purple-500/20 text-purple-400 flex items-center gap-1">
+                                                    🎬 Video
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div className="flex justify-between items-center mb-4">
+                                        {(() => {
+                                            const itemAny = item as any;
+                                            const price7 = itemAny.price7Days ?? itemAny.price_7_days ?? 0;
+                                            const price30 = item.priceMonthly ?? 0;
+                                            const displayPrice = price7 > 0 ? price7 : price30 > 0 ? price30 : 0;
+                                            const duration = price7 > 0 ? '7 hari' : 'bulan';
+                                            return (
+                                                <>
+                                                    <span className="text-emerald-400 font-black text-lg">
+                                                        {formatPrice(displayPrice)}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-500">/{duration}</span>
+                                                </>
+                                            );
+                                        })()}
                                     </div>
-                                )}
 
-                                <div className="flex justify-between items-center mb-4">
-                                    <span className="text-emerald-400 font-black text-lg">
-                                        {formatPrice(item.priceMonthly)}
-                                    </span>
-                                    <span className="text-[10px] text-slate-500">/bulan</span>
+                                    {/* Actions */}
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleToggleStatus(item)}
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${item.status === 'active'
+                                                ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                                : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                                                }`}
+                                        >
+                                            {item.status === 'active' ? '🔒 Nonaktifkan' : '🔓 Aktifkan'}
+                                        </button>
+                                        <button
+                                            onClick={() => openModal('edit', item)}
+                                            className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-all"
+                                            title="Edit"
+                                        >
+                                            ✏️
+                                        </button>
+                                        <button
+                                            onClick={() => openModal('delete', item)}
+                                            className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"
+                                            title="Hapus"
+                                        >
+                                            🗑️
+                                        </button>
+                                    </div>
                                 </div>
-
-                                {/* Actions */}
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => handleToggleStatus(item)}
-                                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${item.status === 'active'
-                                            ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                                            : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
-                                            }`}
-                                    >
-                                        {item.status === 'active' ? '🔒 Nonaktifkan' : '🔓 Aktifkan'}
-                                    </button>
-                                    <button
-                                        onClick={() => openModal('edit', item)}
-                                        className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-all"
-                                        title="Edit"
-                                    >
-                                        ✏️
-                                    </button>
-                                    <button
-                                        onClick={() => openModal('delete', item)}
-                                        className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"
-                                        title="Hapus"
-                                    >
-                                        🗑️
-                                    </button>
-                                </div>
-                            </div>
                             </div>
                         );
                     })

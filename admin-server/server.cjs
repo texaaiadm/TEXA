@@ -687,6 +687,123 @@ const server = http.createServer(async (req, res) => {
     return await handleTestConnection(req, res);
   }
 
+  // ==================== Categories API (bypass RLS with service role key) ====================
+  // GET all categories
+  if (req.method === 'GET' && url.pathname === '/api/admin/categories') {
+    try {
+      const catResp = await supabaseFetch('/rest/v1/categories?select=*&order=order.asc');
+      if (catResp.ok) {
+        const categories = await catResp.json();
+        console.log('📂 [categories] Loaded', categories.length, 'categories');
+        return json(res, 200, { success: true, data: categories });
+      } else {
+        const errText = await catResp.text();
+        console.error('❌ [categories] Error loading:', errText);
+        return json(res, 500, { success: false, error: 'Failed to load categories' });
+      }
+    } catch (e) {
+      console.error('❌ [categories] Error:', e);
+      return json(res, 500, { success: false, error: 'Server error' });
+    }
+  }
+
+  // POST add new category
+  if (req.method === 'POST' && url.pathname === '/api/admin/categories') {
+    try {
+      const body = await readBody(req);
+      const { name } = body;
+
+      if (!name || !name.trim()) {
+        return json(res, 400, { success: false, error: 'Category name is required' });
+      }
+
+      // Get max order
+      const orderResp = await supabaseFetch('/rest/v1/categories?select=order&order=order.desc&limit=1');
+      let maxOrder = -1;
+      if (orderResp.ok) {
+        const orders = await orderResp.json();
+        if (orders.length > 0) maxOrder = orders[0].order || 0;
+      }
+
+      const now = new Date().toISOString();
+      const insertResp = await supabaseFetch('/rest/v1/categories', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          name: name.trim(),
+          order: maxOrder + 1,
+          created_at: now,
+          updated_at: now
+        })
+      });
+
+      if (insertResp.ok) {
+        const inserted = await insertResp.json();
+        console.log('✅ [categories] Added:', name);
+        return json(res, 201, { success: true, data: inserted[0] || inserted });
+      } else {
+        const errText = await insertResp.text();
+        console.error('❌ [categories] Insert error:', errText);
+        return json(res, 500, { success: false, error: 'Failed to add category' });
+      }
+    } catch (e) {
+      console.error('❌ [categories] Add error:', e);
+      return json(res, 500, { success: false, error: 'Server error' });
+    }
+  }
+
+  // PUT update category
+  if (req.method === 'PUT' && url.pathname.startsWith('/api/admin/categories/')) {
+    try {
+      const categoryId = url.pathname.split('/').pop();
+      const body = await readBody(req);
+      const { name } = body;
+
+      if (!name || !name.trim()) {
+        return json(res, 400, { success: false, error: 'Category name is required' });
+      }
+
+      const updateResp = await supabaseFetch(`/rest/v1/categories?id=eq.${categoryId}`, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({
+          name: name.trim(),
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      if (updateResp.ok) {
+        console.log('✅ [categories] Updated:', categoryId);
+        return json(res, 200, { success: true });
+      } else {
+        return json(res, 500, { success: false, error: 'Failed to update category' });
+      }
+    } catch (e) {
+      console.error('❌ [categories] Update error:', e);
+      return json(res, 500, { success: false, error: 'Server error' });
+    }
+  }
+
+  // DELETE category
+  if (req.method === 'DELETE' && url.pathname.startsWith('/api/admin/categories/')) {
+    try {
+      const categoryId = url.pathname.split('/').pop();
+      const delResp = await supabaseFetch(`/rest/v1/categories?id=eq.${categoryId}`, {
+        method: 'DELETE'
+      });
+
+      if (delResp.ok) {
+        console.log('🗑️ [categories] Deleted:', categoryId);
+        return json(res, 200, { success: true });
+      } else {
+        return json(res, 500, { success: false, error: 'Failed to delete category' });
+      }
+    } catch (e) {
+      console.error('❌ [categories] Delete error:', e);
+      return json(res, 500, { success: false, error: 'Server error' });
+    }
+  }
+
   try {
     // TokoPay API Routes
     if (req.method === 'POST' && (url.pathname === '/api/tokopay/create-order' || url.pathname === '/tokopay/create-order')) {

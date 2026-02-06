@@ -91,7 +91,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
   const [filter, setFilter] = useState('Semua');
   const [tools, setTools] = useState<AITool[]>(MOCK_TOOLS);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>('compact');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [content, setContent] = useState<DashboardContentSettings>(DEFAULT_DASHBOARD_CONTENT);
   const [userToolAccesses, setUserToolAccesses] = useState<UserToolAccess[]>([]);
   const [autoOpenToolId, setAutoOpenToolId] = useState<string | null>(null);
@@ -228,18 +228,22 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-8 gap-4 md:gap-6 px-2">
         <div className="max-w-xl">
           <h2
-            className="text-xl md:text-3xl font-black mb-1 md:mb-2 tracking-tight text-theme-primary flex items-center gap-2"
+            className="text-xl md:text-3xl font-black mb-1 md:mb-2 tracking-tight text-theme-primary flex items-center gap-3"
             style={content?.catalogTitleColor ? { color: content.catalogTitleColor } : undefined}
           >
             {content?.catalogTitle || 'Katalog AI Premium'}
             <span
-              className="px-2 py-0.5 bg-indigo-500/20 text-indigo-400 text-[10px] font-bold rounded-full"
+              className="inline-flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-indigo-600/30 to-purple-600/30 border border-indigo-500/40 text-indigo-300 text-sm font-bold rounded-2xl shadow-lg shadow-indigo-900/20 backdrop-blur-sm"
               style={{
                 ...(content?.catalogBadgeBgColor ? { backgroundColor: content.catalogBadgeBgColor } : {}),
                 ...(content?.catalogBadgeTextColor ? { color: content.catalogBadgeTextColor } : {})
               }}
             >
-              {(content?.catalogBadgeText || '{count} Tools').replace('{count}', String(filteredTools.length))}
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <span className="text-white font-black">{filteredTools.length}</span>
+              <span className="opacity-80">Tools</span>
             </span>
           </h2>
           <p

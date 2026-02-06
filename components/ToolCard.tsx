@@ -86,6 +86,9 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
   // Register popup states to hide/show header/footer
   usePopupState(showCheckoutPopup || showVideoPopup || showExtensionWarning);
 
+  // Calculate safe image URL at component level (for render access)
+  const safeImageUrl = !imageFailed && isUrlImageAllowed(tool.imageUrl || '') ? tool.imageUrl : '';
+
   // Subscribe to settings
   useEffect(() => {
     const unsubscribe = subscribeToSettings((fetchedSettings) => {
@@ -150,8 +153,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
       return;
     }
 
-  const canIframe = tool.openMode === 'iframe' && isUrlIframeAllowed(tool.targetUrl);
-  const safeImageUrl = !imageFailed && isUrlImageAllowed(tool.imageUrl || '') ? tool.imageUrl : '';
+    const canIframe = tool.openMode === 'iframe' && isUrlIframeAllowed(tool.targetUrl);
 
     if (canIframe) {
       navigate(`/tool/${tool.id}`);
@@ -243,7 +245,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
             </button>
           )}
 
-            {/* Video Badge - Only show if no play button */}
+          {/* Video Badge - Only show if no play button */}
           {tool.embedVideoUrl && !embedUrl && (
             <div className="absolute top-3 right-3 md:top-4 md:right-4 px-2 py-1 bg-purple-600/80 backdrop-blur-xl rounded-full text-[8px] font-bold text-white flex items-center gap-1">
               🎬 Video
@@ -261,18 +263,24 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
             <div className="flex flex-col">
               {(() => {
                 // Use individual tool pricing from catalog (proper null checks)
-                // Priority: individualPrice > priceMonthly > defaultToolPrice > 15000
-                const price = tool.individualPrice != null && tool.individualPrice > 0
-                  ? tool.individualPrice
-                  : (tool.priceMonthly != null && tool.priceMonthly > 0)
-                    ? tool.priceMonthly
+                // Priority: price7Days > priceMonthly > defaultToolPrice > 15000
+                // Note: Admin sets price_7_days in database which becomes price7Days in frontend
+                const toolAny = tool as any;
+                const price7 = toolAny.price7Days ?? toolAny.price_7_days ?? 0;
+                const priceMonthly = tool.priceMonthly ?? 0;
+
+                const price = price7 > 0
+                  ? price7
+                  : priceMonthly > 0
+                    ? priceMonthly
                     : (settings.defaultToolPrice || 15000);
+
+                // Duration: 7 days for price7Days, 30 for priceMonthly
+                const duration = price7 > 0 ? 7 : 30;
+
                 const discount = tool.individualDiscount != null && tool.individualDiscount > 0
                   ? tool.individualDiscount
                   : undefined;
-                const duration = tool.individualDuration != null && tool.individualDuration > 0
-                  ? tool.individualDuration
-                  : (settings.defaultToolDuration || 7);
                 return (
                   <>
                     <span className="text-[8px] md:text-[10px] text-theme-muted uppercase font-black tracking-widest">Mulai</span>

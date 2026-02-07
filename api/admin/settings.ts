@@ -50,14 +50,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).end();
     }
 
-    // Check admin access
+    if (!supabase) {
+        return res.status(500).json({ success: false, message: 'Database not configured' });
+    }
+
+    // ── Public GET for specific keys (no auth required) ──
+    const PUBLIC_KEYS = ['iframe_allowed_hosts'];
+    if (req.method === 'GET') {
+        const key = req.query.key as string;
+        if (key && PUBLIC_KEYS.includes(key)) {
+            try {
+                const { data, error } = await supabase
+                    .from('settings')
+                    .select('value')
+                    .eq('key', key)
+                    .single();
+
+                if (error && error.code !== 'PGRST116') {
+                    return res.status(200).json({ success: true, data: null });
+                }
+                res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+                return res.status(200).json({ success: true, data: data || null });
+            } catch {
+                return res.status(200).json({ success: true, data: null });
+            }
+        }
+    }
+
+    // Check admin access (for all other operations)
     const isAdmin = await isAdminOrDev(req);
     if (!isAdmin) {
         return res.status(403).json({ success: false, message: 'Access denied' });
-    }
-
-    if (!supabase) {
-        return res.status(500).json({ success: false, message: 'Database not configured' });
     }
 
     // GET - Fetch a setting by key

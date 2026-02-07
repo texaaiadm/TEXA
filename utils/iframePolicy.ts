@@ -21,14 +21,14 @@ export const fetchIframeHostsFromDB = async (): Promise<string[]> => {
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
     const baseUrl = isLocalDev ? 'http://127.0.0.1:8787' : '';
-    const response = await fetch(`${baseUrl}/api/iframe-settings`, {
+    const response = await fetch(`${baseUrl}/api/admin/settings?key=iframe_allowed_hosts`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
 
     if (response.ok) {
       const result = await response.json();
-      const hosts: string[] = result.hosts || [];
+      const hosts: string[] = result.data?.value?.hosts || [];
       if (hosts.length > 0) {
         setDynamicIframeHosts(hosts);
         console.log(`✅ Loaded ${hosts.length} iframe hosts from DB`);

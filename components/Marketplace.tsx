@@ -92,7 +92,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
   const [filter, setFilter] = useState('Semua');
   const [tools, setTools] = useState<AITool[]>(MOCK_TOOLS);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('compact');
   const [content, setContent] = useState<DashboardContentSettings>(DEFAULT_DASHBOARD_CONTENT);
   const [userToolAccesses, setUserToolAccesses] = useState<UserToolAccess[]>([]);
   const [recentOpenedIds, setRecentOpenedIds] = useState<string[]>([]);

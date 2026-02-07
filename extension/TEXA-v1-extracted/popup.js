@@ -10,16 +10,14 @@ const STORAGE_KEYS = {
     LAST_SYNC: 'last_sync'
 };
 
-// Dashboard URLs - uses localhost for development
 const DASHBOARD_URLS = {
     LOCAL: 'http://localhost:3000',
     NGROK: 'https://conscienceless-lieselotte-ethnohistoric.ngrok-free.dev',
     PRODUCTION: 'https://www.texa.studio'
 };
 
-// Get current dashboard URL based on stored origin or default to ngrok for dev
 function getDashboardUrl() {
-    return window.__TEXA_DASHBOARD_ORIGIN || DASHBOARD_URLS.NGROK;
+    return window.__TEXA_DASHBOARD_ORIGIN || DASHBOARD_URLS.LOCAL;
 }
 
 class TEXAToolsManager {

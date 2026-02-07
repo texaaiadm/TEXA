@@ -14,8 +14,9 @@
         return;
     }
 
-    // Dashboard URL (ngrok for dev)
-    const DASHBOARD_URL = 'https://conscienceless-lieselotte-ethnohistoric.ngrok-free.dev';
+    const DASHBOARD_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? 'http://localhost:3000/#/'
+        : 'https://texa.studio/#/';
 
     // Create overlay header HTML
     function createOverlay() {

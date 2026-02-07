@@ -16,69 +16,6 @@ import { checkExtensionInstalled } from '../services/extensionService';
 import { getRecentOpenedToolIds, pushRecentOpenedTool, RECENT_OPENED_TOOLS_KEY } from '../utils/recentTools';
 
 
-// Fallback mock tools (used when Firestore is empty)
-const MOCK_TOOLS: AITool[] = [
-  {
-    id: '1',
-    name: 'ChatGPT Plus (Shared)',
-    description: 'Akses penuh ke GPT-4o, DALL·E 3, dan fitur analisis data tercanggih.',
-    category: 'Menulis & Riset',
-    imageUrl: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&q=80&w=400',
-    targetUrl: 'https://chat.openai.com',
-    status: 'active',
-    priceMonthly: 45000
-  },
-  {
-    id: '2',
-    name: 'Midjourney Pro',
-    description: 'Generate gambar AI kualitas tinggi tanpa batas dengan mode cepat.',
-    category: 'Desain & Art',
-    imageUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=400',
-    targetUrl: 'https://midjourney.com',
-    status: 'active',
-    priceMonthly: 75000
-  },
-  {
-    id: '3',
-    name: 'Canva Pro Teams',
-    description: 'Buka jutaan aset premium dan hapus background otomatis.',
-    category: 'Desain Grafis',
-    imageUrl: 'https://images.unsplash.com/photo-1626785774573-4b799315345d?auto=format&fit=crop&q=80&w=400',
-    targetUrl: 'https://canva.com',
-    status: 'active',
-    priceMonthly: 15000
-  },
-  {
-    id: '4',
-    name: 'Jasper AI Business',
-    description: 'Bikin konten sosmed dan iklan 10x lebih cepat dengan AI.',
-    category: 'Marketing',
-    imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80&w=400',
-    targetUrl: 'https://jasper.ai',
-    status: 'active',
-    priceMonthly: 99000
-  },
-  {
-    id: '5',
-    name: 'Claude 3.5 Sonnet',
-    description: 'AI cerdas untuk coding dan penulisan kreatif dengan konteks luas.',
-    category: 'Coding & Teks',
-    imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?auto=format&fit=crop&q=80&w=400',
-    targetUrl: 'https://claude.ai',
-    status: 'active',
-    priceMonthly: 55000
-  },
-  {
-    id: '6',
-    name: 'Grammarly Premium',
-    description: 'Cek tata bahasa Inggris otomatis dan kirim email tanpa typo.',
-    category: 'Produktivitas',
-    imageUrl: 'https://images.unsplash.com/photo-1455390582262-044cdead277a?auto=format&fit=crop&q=80&w=400',
-    targetUrl: 'https://grammarly.com',
-    status: 'active',
-    priceMonthly: 25000
-  }
-];
 
 interface MarketplaceProps {
   user: TexaUser | null;
@@ -90,7 +27,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [filter, setFilter] = useState('Semua');
-  const [tools, setTools] = useState<AITool[]>(MOCK_TOOLS);
+  const [tools, setTools] = useState<AITool[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('compact');
   const [content, setContent] = useState<DashboardContentSettings>(DEFAULT_DASHBOARD_CONTENT);
@@ -239,7 +176,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       if (activeItems.length > 0) {
         setTools(activeItems);
       } else {
-        setTools(MOCK_TOOLS);
+        // No fallback to mock data — keep empty if catalog returns nothing
       }
       setLoading(false);
     });

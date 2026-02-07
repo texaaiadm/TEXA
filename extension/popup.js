@@ -320,10 +320,19 @@ class TEXAToolsManager {
         }
 
         try {
-            // Determine API base URL (admin server or origin)
-            const apiBaseUrl = this.origin && (this.origin.includes('localhost') || this.origin.includes('127.0.0.1'))
-                ? 'http://127.0.0.1:8787'
-                : this.origin || 'http://127.0.0.1:8787';
+            // Determine API base URL (admin server for localhost, origin for production)
+            let apiBaseUrl;
+            if (this.origin && (this.origin.includes('localhost') || this.origin.includes('127.0.0.1'))) {
+                // Local development - use admin server
+                apiBaseUrl = 'http://127.0.0.1:8787';
+            } else if (this.origin && (this.origin.includes('texa.studio') || this.origin.includes('vercel.app'))) {
+                // Production - use the origin (Vercel handles API routes via serverless functions)
+                apiBaseUrl = this.origin;
+            } else {
+                // Fallback to production
+                apiBaseUrl = 'https://texa.studio';
+            }
+            console.log('[TEXA Popup] Using API base URL:', apiBaseUrl);
 
             // 1. Fetch user's purchased tools
             const userToolsResponse = await fetch(`${apiBaseUrl}/api/public/user-tools?userId=${this.user.id}`, {

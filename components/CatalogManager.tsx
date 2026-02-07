@@ -15,7 +15,7 @@ import {
     Category,
     CatalogItem
 } from '../services/supabaseCatalogService';
-import { getIframeAllowedHostPatterns, isUrlIframeAllowed, isUrlImageAllowed } from '../utils/iframePolicy';
+import { getIframeAllowedHostPatterns, isUrlIframeAllowed, isUrlImageAllowed, fetchIframeHostsFromDB, setDynamicIframeHosts } from '../utils/iframePolicy';
 
 interface CatalogManagerProps {
     showToast: (message: string, type: 'success' | 'error') => void;
@@ -37,6 +37,11 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
     const [newCategoryName, setNewCategoryName] = useState('');
     const [editingCategory, setEditingCategory] = useState<Category | null>(null);
     const [categoryLoading, setCategoryLoading] = useState(false);
+
+    // Iframe domain management state
+    const [iframeDomains, setIframeDomains] = useState<string[]>([]);
+    const [newIframeDomain, setNewIframeDomain] = useState('');
+    const [iframeSaving, setIframeSaving] = useState(false);
 
     const getSafeImageUrl = (value?: string | null) => {
         const trimmed = (value || '').trim();
@@ -83,6 +88,28 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
         };
     }, []);
 
+    // Load iframe allowed hosts from DB
+    useEffect(() => {
+        const loadIframeHosts = async () => {
+            try {
+                const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                const baseUrl = isLocalDev ? 'http://127.0.0.1:8787' : '';
+                const response = await fetch(`${baseUrl}/api/admin/settings?key=iframe_allowed_hosts`, {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    const hosts: string[] = result.data?.value?.hosts || [];
+                    setIframeDomains(hosts);
+                    setDynamicIframeHosts(hosts);
+                }
+            } catch (e) {
+                console.warn('[CatalogManager] Failed to load iframe hosts:', e);
+            }
+        };
+        loadIframeHosts();
+    }, []);
+
     // Filter items
     const filteredItems = items.filter(item => {
         const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -114,6 +141,48 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
     };
 
     const allowedIframeHosts = getIframeAllowedHostPatterns();
+
+    // Save iframe domains to Supabase settings
+    const saveIframeDomains = async (domains: string[]) => {
+        setIframeSaving(true);
+        try {
+            const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const baseUrl = isLocalDev ? 'http://127.0.0.1:8787' : '';
+            const response = await fetch(`${baseUrl}/api/admin/settings`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'iframe_allowed_hosts', value: { hosts: domains } })
+            });
+            if (response.ok) {
+                setIframeDomains(domains);
+                setDynamicIframeHosts(domains);
+                showToast('Domain iframe berhasil disimpan! ✅', 'success');
+            } else {
+                showToast('Gagal menyimpan domain iframe', 'error');
+            }
+        } catch (e) {
+            console.error('[CatalogManager] Failed to save iframe domains:', e);
+            showToast('Error menyimpan domain iframe', 'error');
+        }
+        setIframeSaving(false);
+    };
+
+    const handleAddIframeDomain = () => {
+        const domain = newIframeDomain.trim().toLowerCase();
+        if (!domain) return;
+        if (iframeDomains.includes(domain)) {
+            showToast('Domain sudah ada dalam daftar', 'error');
+            return;
+        }
+        const updated = [...iframeDomains, domain];
+        saveIframeDomains(updated);
+        setNewIframeDomain('');
+    };
+
+    const handleRemoveIframeDomain = (domain: string) => {
+        const updated = iframeDomains.filter(d => d !== domain);
+        saveIframeDomains(updated);
+    };
 
     // Open modal
     const openModal = (type: 'add' | 'edit' | 'delete', item?: CatalogItem) => {
@@ -641,9 +710,49 @@ const CatalogManager: React.FC<CatalogManagerProps> = ({ showToast }) => {
                                                     Iframe (Host)
                                                 </button>
                                             </div>
-                                            <p className="text-[10px] text-slate-500 mt-2">
-                                                Domain iframe diizinkan: {allowedIframeHosts.join(', ')}
-                                            </p>
+                                            <div className="mt-3 p-3 rounded-xl bg-black/20 border border-white/5">
+                                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Domain Iframe Diizinkan</p>
+                                                <div className="flex flex-wrap gap-1.5 mb-2">
+                                                    {allowedIframeHosts.map((host) => (
+                                                        <span key={host} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">
+                                                            {host}
+                                                            {iframeDomains.includes(host) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRemoveIframeDomain(host)}
+                                                                    disabled={iframeSaving}
+                                                                    className="ml-0.5 text-red-400 hover:text-red-300 disabled:opacity-50"
+                                                                    title="Hapus domain"
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            )}
+                                                        </span>
+                                                    ))}
+                                                    {allowedIframeHosts.length === 0 && (
+                                                        <span className="text-[10px] text-slate-600">Belum ada domain</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex gap-1.5">
+                                                    <input
+                                                        type="text"
+                                                        value={newIframeDomain}
+                                                        onChange={(e) => setNewIframeDomain(e.target.value)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddIframeDomain(); } }}
+                                                        placeholder="contoh: chat.openai.com"
+                                                        className="flex-1 px-3 py-1.5 bg-black/30 border border-white/10 rounded-lg text-[11px] text-white focus:outline-none focus:border-indigo-500 placeholder:text-slate-600"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleAddIframeDomain}
+                                                        disabled={iframeSaving || !newIframeDomain.trim()}
+                                                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold transition-all disabled:opacity-40"
+                                                    >
+                                                        {iframeSaving ? '...' : '+ Tambah'}
+                                                    </button>
+                                                </div>
+                                                <p className="text-[9px] text-slate-600 mt-1.5">Domain dari env var & default tidak bisa dihapus dari sini</p>
+                                            </div>
                                         </div>
                                     </div>
 

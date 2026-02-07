@@ -21,6 +21,7 @@ import Dock, { DockItemData } from './components/Dock';
 import { subscribeToDockItems, DockItem } from './services/supabaseDockService';
 import toketHtml from './tambahan/toket.txt?raw';
 import { applyTheme as applyThemeSettings, getDefaultThemeSettings, subscribeToThemeSettings, ThemeSettings } from './services/supabaseThemeService';
+import { fetchIframeHostsFromDB } from './utils/iframePolicy';
 
 const DEFAULT_THEME_SETTINGS = getDefaultThemeSettings();
 
@@ -292,6 +293,9 @@ const App: React.FC = () => {
     let hasCachedUser = false;
 
     const initAuth = async () => {
+      // Load dynamic iframe hosts from DB on app init
+      fetchIframeHostsFromDB().catch(() => { });
+
       try {
         // Try to restore user from localStorage cache first for fast UI
         const cachedUser = window.localStorage.getItem('texa_current_user');

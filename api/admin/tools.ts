@@ -5,6 +5,14 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
+// Log env var availability for debugging (only first chars for security)
+console.log('[api/admin/tools] ENV check:', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseServiceKey,
+    urlPrefix: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'MISSING',
+    envKeys: Object.keys(process.env).filter(k => k.includes('SUPA') || k.includes('VITE')).join(', ') || 'NONE'
+});
+
 const supabase = supabaseUrl && supabaseServiceKey
     ? createClient(supabaseUrl, supabaseServiceKey)
     : null;
@@ -103,7 +111,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const { data: existing } = await supabase
                 .from('tools')
                 .select('sort_order')
-                .order('sort_order', { descending: true })
+                .order('sort_order', { ascending: false })
                 .limit(1);
 
             const maxOrder = existing?.[0]?.sort_order || 0;

@@ -16,7 +16,7 @@
 
     const DASHBOARD_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
         ? 'http://localhost:3000/#/'
-        : 'https://texa.studio/#/';
+        : 'https://www.texa.studio/#/';
 
     // Create overlay header HTML
     function createOverlay() {

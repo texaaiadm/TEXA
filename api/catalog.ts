@@ -5,6 +5,14 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
+// Log env var availability for debugging
+console.log('[api/catalog] ENV check:', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseServiceKey,
+    urlPrefix: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'MISSING',
+    envKeys: Object.keys(process.env).filter(k => k.includes('SUPA') || k.includes('VITE')).join(', ') || 'NONE'
+});
+
 const supabase = supabaseUrl && supabaseServiceKey
     ? createClient(supabaseUrl, supabaseServiceKey)
     : null;

@@ -294,13 +294,45 @@ const toSupabaseTool = (item: Partial<CatalogItem>): any => {
     return converted;
 };
 
-// Get all catalog items - Uses admin API to bypass RLS and avoid connection issues
-export const getCatalog = async (): Promise<CatalogItem[]> => {
-    try {
-        const apiBaseUrl = getApiBaseUrl();
+// Map raw tool data (from any source) to CatalogItem format
+const mapToolToCatalogItem = (tool: any): CatalogItem => ({
+    id: tool.id,
+    name: tool.name,
+    description: tool.description || '',
+    category: tool.category || '',
+    imageUrl: tool.image_url || tool.imageUrl || '',
+    targetUrl: tool.tool_url || tool.targetUrl || '',
+    cookiesData: tool.cookies_data ?? tool.cookiesData ?? '',
+    apiUrl: tool.api_url ?? tool.apiUrl ?? '',
+    status: tool.is_active ? 'active' : (tool.status || 'active'),
+    priceMonthly: tool.price_monthly || tool.priceMonthly || 0,
+    order: tool.sort_order || tool.order || 0,
+    createdAt: tool.created_at || tool.createdAt,
+    updatedAt: tool.updated_at || tool.updatedAt,
+    createdBy: tool.created_by || tool.createdBy,
+    // Multi-tier pricing fields (CRITICAL: these are used by CheckoutPopup)
+    price7Days: tool.price_7_days ?? tool.price7Days ?? 0,
+    price14Days: tool.price_14_days ?? tool.price14Days ?? 0,
+    price30Days: tool.price_30_days ?? tool.price30Days ?? 0,
+    // Individual pricing fields (legacy, preserve for compatibility)
+    individualPrice: tool.individual_price ?? tool.individualPrice ?? null,
+    individualDuration: tool.individual_duration ?? tool.individualDuration ?? 7,
+    individualDiscount: tool.individual_discount ?? tool.individualDiscount ?? null
+});
 
-        // Try Admin API first (works reliably)
-        const response = await fetch(`${apiBaseUrl}/api/admin/tools`, {
+// Get all catalog items - Multi-layer fallback for maximum reliability
+export const getCatalog = async (): Promise<CatalogItem[]> => {
+    const apiBaseUrl = getApiBaseUrl();
+    const isLocalDev = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    // ── Layer 1: Try public /api/catalog endpoint (production) or admin API (local dev) ──
+    try {
+        const endpoint = isLocalDev
+            ? `${apiBaseUrl}/api/admin/tools`
+            : `${apiBaseUrl}/api/catalog`;
+
+        const response = await fetch(endpoint, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -310,52 +342,94 @@ export const getCatalog = async (): Promise<CatalogItem[]> => {
 
         if (response.ok) {
             const result = await response.json();
-            if (result.success && Array.isArray(result.data)) {
-                console.log(`✅ Loaded ${result.data.length} tools via Admin API`);
-                return result.data.map((tool: any) => ({
-                    id: tool.id,
-                    name: tool.name,
-                    description: tool.description || '',
-                    category: tool.category || '',
-                    imageUrl: tool.image_url || tool.imageUrl || '',
-                    targetUrl: tool.tool_url || tool.targetUrl || '',
-                    cookiesData: tool.cookies_data ?? tool.cookiesData ?? '',
-                    apiUrl: tool.api_url ?? tool.apiUrl ?? '',
-                    status: tool.is_active ? 'active' : (tool.status || 'active'),
-                    priceMonthly: tool.price_monthly || tool.priceMonthly || 0,
-                    order: tool.sort_order || tool.order || 0,
-                    createdAt: tool.created_at || tool.createdAt,
-                    updatedAt: tool.updated_at || tool.updatedAt,
-                    createdBy: tool.created_by || tool.createdBy,
-                    // Multi-tier pricing fields (CRITICAL: these are used by CheckoutPopup)
-                    price7Days: tool.price_7_days ?? tool.price7Days ?? 0,
-                    price14Days: tool.price_14_days ?? tool.price14Days ?? 0,
-                    price30Days: tool.price_30_days ?? tool.price30Days ?? 0,
-                    // Individual pricing fields (legacy, preserve for compatibility)
-                    individualPrice: tool.individual_price ?? tool.individualPrice ?? null,
-                    individualDuration: tool.individual_duration ?? tool.individualDuration ?? 7,
-                    individualDiscount: tool.individual_discount ?? tool.individualDiscount ?? null
-                }));
+            // /api/catalog returns array directly, /api/admin/tools wraps in { success, data }
+            const toolsArray = Array.isArray(result)
+                ? result
+                : (result.success && Array.isArray(result.data) ? result.data : null);
+
+            if (toolsArray && toolsArray.length > 0) {
+                console.log(`✅ Loaded ${toolsArray.length} tools via ${isLocalDev ? 'Admin' : 'Public'} API`);
+                return toolsArray.map(mapToolToCatalogItem);
             }
         }
+    } catch (e) {
+        console.warn('[getCatalog] API endpoint failed:', e);
+    }
 
-        // Fallback to direct Supabase if Admin API fails
-        console.log('Admin API unavailable, falling back to Supabase...');
+    // ── Layer 2: Try admin API as fallback (production only) ──
+    if (!isLocalDev) {
+        try {
+            const response = await fetch(`${apiBaseUrl}/api/admin/tools`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Dev-Bypass': 'true'
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+                    console.log(`✅ Loaded ${result.data.length} tools via Admin API fallback`);
+                    return result.data.map(mapToolToCatalogItem);
+                }
+            }
+        } catch (e) {
+            console.warn('[getCatalog] Admin API fallback failed:', e);
+        }
+    }
+
+    // ── Layer 3: Direct Supabase client query ──
+    try {
+        console.log('[getCatalog] API unavailable, trying direct Supabase...');
         const { data, error } = await supabase
             .from('tools')
             .select('*')
             .order('sort_order', { ascending: true });
 
-        if (error) {
-            console.error('Error getting catalog:', error);
-            return [];
+        if (!error && data && data.length > 0) {
+            console.log(`✅ Loaded ${data.length} tools via direct Supabase`);
+            return data.map(toLocalCatalogItem);
         }
-
-        return (data || []).map(toLocalCatalogItem);
-    } catch (error) {
-        console.error('Error getting catalog:', error);
-        return [];
+        if (error) {
+            console.warn('[getCatalog] Supabase client error:', error.message);
+        }
+    } catch (e) {
+        console.warn('[getCatalog] Supabase client failed:', e);
     }
+
+    // ── Layer 4: Supabase REST API direct fetch (bypasses client issues) ──
+    try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+        if (supabaseUrl && supabaseKey) {
+            console.log('[getCatalog] Trying Supabase REST API directly...');
+            const restResponse = await fetch(
+                `${supabaseUrl}/rest/v1/tools?order=sort_order.asc&select=*`,
+                {
+                    headers: {
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            if (restResponse.ok) {
+                const tools = await restResponse.json();
+                if (Array.isArray(tools) && tools.length > 0) {
+                    console.log(`✅ Loaded ${tools.length} tools via Supabase REST API`);
+                    return tools.map(toLocalCatalogItem);
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[getCatalog] Supabase REST API failed:', e);
+    }
+
+    console.error('[getCatalog] All data sources failed, returning empty');
+    return [];
 };
 
 // Subscribe to catalog (polling)

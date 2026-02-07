@@ -17,7 +17,7 @@ const DASHBOARD_URLS = {
 };
 
 function getDashboardUrl() {
-    return window.__TEXA_DASHBOARD_ORIGIN || DASHBOARD_URLS.LOCAL;
+    return window.__TEXA_DASHBOARD_ORIGIN || DASHBOARD_URLS.PRODUCTION;
 }
 
 class TEXAToolsManager {

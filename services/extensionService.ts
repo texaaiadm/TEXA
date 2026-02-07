@@ -31,6 +31,7 @@ export interface ExtensionSettings {
     // Feature Flags
     requireExtension?: boolean;       // Apakah wajib install extension
     showTutorialVideo?: boolean;      // Tampilkan video tutorial
+    latestVersion?: string;
 
     // Timestamps
     updatedAt?: string;
@@ -47,7 +48,8 @@ export const DEFAULT_EXTENSION_SETTINGS: ExtensionSettings = {
     popupDescription: 'Untuk menggunakan tools ini, Anda perlu memasang TEXA-Ai Extension terlebih dahulu. Ikuti tutorial di bawah untuk panduan instalasi.',
     popupIcon: '🧩',
     requireExtension: true,
-    showTutorialVideo: true
+    showTutorialVideo: true,
+    latestVersion: '1.0.0'
 };
 
 // Get extension settings

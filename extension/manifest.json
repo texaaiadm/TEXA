@@ -39,8 +39,12 @@
         "http://localhost/*",
         "http://localhost:3000/*",
         "http://127.0.0.1/*",
+        "https://conscienceless-lieselotte-ethnohistoric.ngrok-free.dev/*",
+        "https://www.texa.studio/*",
+        "https://texa-beta.vercel.app/*",
         "https://*.vercel.app/*",
-        "https://texa-canvas.vercel.app/*"
+        "https://texa-canvas.vercel.app/*",
+        "https://texa.web.id/*"
       ],
       "js": [
         "contentScript.js"
@@ -74,7 +78,12 @@
       ],
       "matches": [
         "http://localhost/*",
-        "https://*.vercel.app/*"
+        "http://127.0.0.1/*",
+        "https://conscienceless-lieselotte-ethnohistoric.ngrok-free.dev/*",
+        "https://www.texa.studio/*",
+        "https://texa-beta.vercel.app/*",
+        "https://*.vercel.app/*",
+        "https://texa.web.id/*"
       ]
     },
     {

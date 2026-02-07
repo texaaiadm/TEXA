@@ -1197,8 +1197,41 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
       }
     }
 
+    // ==================== Catalog Endpoint for Extension ====================
+    // Used by browser extension to get tools list with targetUrl
+    if (req.method === 'GET' && url.pathname === '/api/catalog') {
+      try {
+        const response = await supabaseFetch('/rest/v1/tools?select=id,name,description,category,image_url,tool_url,api_url,cookies_data,is_active&is_active=eq.true&order=sort_order.asc');
+        if (response.ok) {
+          const rawTools = await response.json();
+          // Map database fields to extension expected format
+          const tools = rawTools.map(tool => ({
+            id: tool.id,
+            name: tool.name,
+            description: tool.description || '',
+            category: tool.category || '',
+            imageUrl: tool.image_url || '',
+            targetUrl: tool.tool_url || '',
+            apiUrl: tool.api_url || '',
+            cookiesData: tool.cookies_data || null,
+            status: tool.status || (tool.is_active ? 'active' : 'inactive')
+          }));
+          console.log('📦 [catalog] Returning', tools.length, 'tools for extension');
+          return json(res, 200, { success: true, tools: tools });
+        } else {
+          const errText = await response.text();
+          console.error('❌ [catalog] Error:', errText);
+          return json(res, 500, { success: false, error: 'Failed to fetch catalog' });
+        }
+      } catch (e) {
+        console.error('❌ [catalog] Error:', e);
+        return json(res, 500, { success: false, error: 'Server error' });
+      }
+    }
+
     // ==================== Public User Tools Endpoint (Bypass RLS) ====================
     // Used by frontend to check user's tool accesses - bypasses RLS using service role key
+
     if (req.method === 'GET' && url.pathname === '/api/public/user-tools') {
       const userId = url.searchParams.get('userId');
       if (!userId) {
@@ -1248,7 +1281,7 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
       if (!guard.ok) return json(res, guard.status, { success: false, message: guard.message });
 
       const body = await readBody(req);
-      const { name, description, category, imageUrl, targetUrl, status, priceMonthly } = body;
+      const { name, description, category, imageUrl, targetUrl, status, priceMonthly, cookiesData, apiUrl } = body;
 
       if (!name) {
         return json(res, 400, { success: false, message: 'Nama tool wajib diisi' });
@@ -1271,6 +1304,8 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
           category: category || '',
           image_url: imageUrl || '',
           tool_url: targetUrl || '',
+          cookies_data: cookiesData || null,
+          api_url: apiUrl || null,
           is_active: status === 'active',
           is_premium: true,
           price_monthly: Number(priceMonthly) || 0,
@@ -1321,6 +1356,8 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
       if (body.category !== undefined) updateData.category = body.category;
       if (body.imageUrl !== undefined) updateData.image_url = body.imageUrl;
       if (body.targetUrl !== undefined) updateData.tool_url = body.targetUrl;
+      if (body.cookiesData !== undefined) updateData.cookies_data = body.cookiesData || null;
+      if (body.apiUrl !== undefined) updateData.api_url = body.apiUrl || null;
       if (body.status !== undefined) updateData.is_active = body.status === 'active';
       if (body.priceMonthly !== undefined) updateData.price_monthly = Number(body.priceMonthly) || 0;
       if (body.order !== undefined) updateData.sort_order = Number(body.order) || 0;

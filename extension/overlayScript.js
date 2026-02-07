@@ -14,8 +14,8 @@
         return;
     }
 
-    // Dashboard URL
-    const DASHBOARD_URL = 'http://localhost:3000'; // For production: 'https://texa-canvas.vercel.app'
+    // Dashboard URL (production)
+    const DASHBOARD_URL = 'https://www.texa.studio';
 
     // Create overlay header HTML
     function createOverlay() {
@@ -219,7 +219,11 @@
 
         // Handle Home button click
         document.getElementById('texa-go-home').addEventListener('click', function () {
-            window.location.href = DASHBOARD_URL + '/#/';
+            chrome.storage.local.get(['texa_origin'], (result) => {
+                const origin = result?.texa_origin || '';
+                const targetUrl = (origin && origin.startsWith('http')) ? origin : DASHBOARD_URL;
+                window.location.href = targetUrl + '/#/';
+            });
         });
 
         // Start digital clock

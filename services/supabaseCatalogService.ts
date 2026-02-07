@@ -263,6 +263,8 @@ const toLocalCatalogItem = (tool: any): CatalogItem => ({
     category: tool.category || '',
     imageUrl: tool.image_url || '',
     targetUrl: tool.tool_url || '',
+    cookiesData: tool.cookies_data ?? tool.cookiesData ?? '',
+    apiUrl: tool.api_url ?? tool.apiUrl ?? '',
     status: tool.is_active ? 'active' : 'inactive',
     priceMonthly: tool.price_monthly || 0,
     order: tool.sort_order || 0,
@@ -283,6 +285,8 @@ const toSupabaseTool = (item: Partial<CatalogItem>): any => {
     if (item.category !== undefined) converted.category = item.category;
     if (item.imageUrl !== undefined) converted.image_url = item.imageUrl;
     if (item.targetUrl !== undefined) converted.tool_url = item.targetUrl;
+    if (item.cookiesData !== undefined) converted.cookies_data = item.cookiesData;
+    if (item.apiUrl !== undefined) converted.api_url = item.apiUrl;
     if (item.status !== undefined) converted.is_active = item.status === 'active';
     if (item.priceMonthly !== undefined) converted.price_monthly = item.priceMonthly;
     if (item.order !== undefined) converted.sort_order = item.order;
@@ -315,6 +319,8 @@ export const getCatalog = async (): Promise<CatalogItem[]> => {
                     category: tool.category || '',
                     imageUrl: tool.image_url || tool.imageUrl || '',
                     targetUrl: tool.tool_url || tool.targetUrl || '',
+                    cookiesData: tool.cookies_data ?? tool.cookiesData ?? '',
+                    apiUrl: tool.api_url ?? tool.apiUrl ?? '',
                     status: tool.is_active ? 'active' : (tool.status || 'active'),
                     priceMonthly: tool.price_monthly || tool.priceMonthly || 0,
                     order: tool.sort_order || tool.order || 0,
@@ -425,6 +431,8 @@ export const addCatalogItem = async (
                 category: item.category,
                 imageUrl: item.imageUrl,
                 targetUrl: item.targetUrl,
+                cookiesData: item.cookiesData,
+                apiUrl: item.apiUrl,
                 status: item.status,
                 priceMonthly: item.priceMonthly,
                 createdBy: createdBy || 'admin'
@@ -466,6 +474,8 @@ export const updateCatalogItem = async (
                 category: updates.category,
                 imageUrl: updates.imageUrl,
                 targetUrl: updates.targetUrl,
+                cookiesData: updates.cookiesData,
+                apiUrl: updates.apiUrl,
                 status: updates.status,
                 priceMonthly: updates.priceMonthly,
                 order: updates.order,

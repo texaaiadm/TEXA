@@ -1871,6 +1871,18 @@ const AdminDashboard: React.FC = () => {
                     className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:border-rose-500 text-white placeholder:text-slate-500"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                    Versi Extension Terbaru
+                  </label>
+                  <input
+                    type="text"
+                    value={extensionSettings.latestVersion || ''}
+                    onChange={(e) => setExtensionSettings({ ...extensionSettings, latestVersion: e.target.value })}
+                    placeholder="1.0.0"
+                    className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:border-rose-500 text-white placeholder:text-slate-500"
+                  />
+                </div>
               </div>
             </div>
 

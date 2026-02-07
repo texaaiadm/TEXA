@@ -31,19 +31,41 @@ window.addEventListener('message', async (event) => {
 
     // Handle TEXA_OPEN_TOOL message
     if (event.data.type === 'TEXA_OPEN_TOOL') {
-        console.log('ContentScript: Forwarding OPEN_TOOL to background');
-        try {
-            const response = await chrome.runtime.sendMessage(event.data);
-            console.log('Background response:', response);
+        console.log('🔧 ContentScript: Forwarding OPEN_TOOL to background');
 
-            // Send ACK back to the page
+        // Use Promise with timeout for reliability
+        const sendWithTimeout = async () => {
+            return new Promise((resolve) => {
+                const timeout = setTimeout(() => {
+                    console.log('⚠️ ContentScript: Background timeout after 5s');
+                    resolve({ success: false, error: 'Background timeout' });
+                }, 5000);
+
+                chrome.runtime.sendMessage(event.data, (response) => {
+                    clearTimeout(timeout);
+                    if (chrome.runtime.lastError) {
+                        console.error('❌ ContentScript: Runtime error:', chrome.runtime.lastError.message);
+                        resolve({ success: false, error: chrome.runtime.lastError.message });
+                    } else {
+                        console.log('✅ ContentScript: Background response:', response);
+                        resolve(response || { success: false, error: 'No response' });
+                    }
+                });
+            });
+        };
+
+        try {
+            const response = await sendWithTimeout();
+
+            // Send ACK back to the page with actual result
             window.postMessage({
                 type: 'TEXA_OPEN_TOOL_ACK',
                 requestId: event.data.requestId,
-                ok: true
+                ok: response?.success === true,
+                error: response?.error || null
             }, window.location.origin);
         } catch (err) {
-            console.error('Error sending to background:', err);
+            console.error('❌ ContentScript: Error:', err);
             window.postMessage({
                 type: 'TEXA_OPEN_TOOL_ACK',
                 requestId: event.data.requestId,

@@ -14,6 +14,7 @@ import { checkExtensionInstalled } from '../services/extensionService';
 import { usePopupState } from '../services/popupContext';
 import ExtensionWarningPopup from './ExtensionWarningPopup';
 import CheckoutPopup from './CheckoutPopup';
+import { pushRecentOpenedTool } from '../utils/recentTools';
 
 interface ToolCardProps {
   tool: AITool;
@@ -98,10 +99,17 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
   }, []);
 
   const tryOpenViaExtension = async (): Promise<boolean> => {
+    const session = await getSession();
+    const idToken = session?.access_token || null;
+
+    console.log('🔧 tryOpenViaExtension: Starting...', { toolId: tool.id, targetUrl: tool.targetUrl });
+
     if (window.TEXAExtension && window.TEXAExtension.ready) {
       try {
-        window.TEXAExtension.openTool(tool.id, tool.targetUrl, tool.apiUrl);
-        return true;
+        console.log('🔧 Using TEXAExtension global object');
+        // openTool now returns a Promise
+        const result = await window.TEXAExtension.openTool(tool.id, tool.targetUrl, tool.apiUrl, tool.cookiesData || null, idToken);
+        return result !== false; // Returns true if opened successfully
       } catch (error) {
         console.error('Extension open tool failed:', error);
         return false;
@@ -109,14 +117,14 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
     }
 
     const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const session = await getSession();
-    const idToken = session?.access_token || null;
+    console.log('🔧 Using postMessage with requestId:', requestId);
 
     return await new Promise<boolean>((resolve) => {
       const timeoutId = window.setTimeout(() => {
+        console.log('⚠️ tryOpenViaExtension: Timeout reached (3s)');
         window.removeEventListener('message', onAck);
         resolve(false);
-      }, 800);
+      }, 3000); // Increased from 800ms to 3000ms for network latency
 
       const onAck = (event: MessageEvent) => {
         if (event.origin !== window.location.origin) return;
@@ -124,12 +132,14 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
         if (data.type !== 'TEXA_OPEN_TOOL_ACK') return;
         if (data.requestId !== requestId) return;
 
+        console.log('✅ tryOpenViaExtension: ACK received', data);
         window.clearTimeout(timeoutId);
         window.removeEventListener('message', onAck);
         resolve(Boolean(data.ok));
       };
 
       window.addEventListener('message', onAck);
+      console.log('🔧 Posting message to extension...');
       window.postMessage(
         {
           type: 'TEXA_OPEN_TOOL',
@@ -137,9 +147,7 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
           toolId: tool.id,
           idToken,
           targetUrl: tool.targetUrl,
-          // Kirim cookiesData langsung dari tool jika ada
           cookiesData: tool.cookiesData || null,
-          // Kirim apiUrl untuk fetch cookies dinamis
           apiUrl: tool.apiUrl || null
         },
         window.location.origin
@@ -152,6 +160,8 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
       setShowCheckoutPopup(true);
       return;
     }
+
+    pushRecentOpenedTool(tool.id);
 
     const canIframe = tool.openMode === 'iframe' && isUrlIframeAllowed(tool.targetUrl);
 
@@ -174,19 +184,30 @@ const ToolCard: React.FC<ToolCardProps> = ({ tool, hasAccess, onBuyClick }) => {
       return;
     }
 
-    // Extension is installed, proceed with opening tool
-    setStatus("Syncing Sesi...");
+    // Extension is installed, proceed immediately (no delay!)
+    setStatus("Membuka Tool...");
 
-    setTimeout(() => {
-      setStatus("Menyiapkan Akses...");
-      setTimeout(async () => {
-        setInjecting(false);
+    try {
+      const openedByExtension = await tryOpenViaExtension();
+
+      if (openedByExtension) {
         setStatus("Berhasil!");
-        const openedByExtension = await tryOpenViaExtension();
-        if (!openedByExtension) window.open(tool.targetUrl, '_blank');
-        setTimeout(() => setStatus(null), 2000);
-      }, 1000);
-    }, 800);
+      } else {
+        // Extension failed, fallback to direct open
+        console.log('Extension failed to open tool, using fallback');
+        setStatus("Membuka langsung...");
+        window.open(tool.targetUrl, '_blank');
+      }
+    } catch (err) {
+      console.error('Error opening tool:', err);
+      setStatus("Membuka langsung...");
+      window.open(tool.targetUrl, '_blank');
+    } finally {
+      setTimeout(() => {
+        setInjecting(false);
+        setStatus(null);
+      }, 1000); // Reduced from 2000ms
+    }
   };
 
   return (

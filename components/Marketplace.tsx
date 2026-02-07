@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AITool } from '../types';
-import { TexaUser } from '../services/supabaseAuthService';
+import { TexaUser, getSession } from '../services/supabaseAuthService';
 import ToolCard from './ToolCard';
 import CompactToolCard from './CompactToolCard';
 import { subscribeToCatalog, CatalogItem } from '../services/supabaseCatalogService';
@@ -13,6 +13,7 @@ import {
 } from '../services/supabaseDashboardService';
 import { getUserToolAccesses, UserToolAccess } from '../services/userToolsService';
 import { checkExtensionInstalled } from '../services/extensionService';
+import { getRecentOpenedToolIds, pushRecentOpenedTool, RECENT_OPENED_TOOLS_KEY } from '../utils/recentTools';
 
 
 // Fallback mock tools (used when Firestore is empty)
@@ -94,7 +95,9 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [content, setContent] = useState<DashboardContentSettings>(DEFAULT_DASHBOARD_CONTENT);
   const [userToolAccesses, setUserToolAccesses] = useState<UserToolAccess[]>([]);
+  const [recentOpenedIds, setRecentOpenedIds] = useState<string[]>([]);
   const [autoOpenToolId, setAutoOpenToolId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const autoOpenProcessed = useRef(false);
 
   // Detect openTool parameter from URL (e.g., after successful payment)
@@ -132,9 +135,13 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
 
       if (isExtensionInstalled && window.TEXAExtension?.openTool) {
         // Open via extension
-        window.TEXAExtension.openTool(tool.id, tool.targetUrl, tool.apiUrl);
+        pushRecentOpenedTool(tool.id);
+        const session = await getSession();
+        const idToken = session?.access_token || null;
+        window.TEXAExtension.openTool(tool.id, tool.targetUrl, tool.apiUrl, tool.cookiesData || null, idToken);
       } else if (tool.targetUrl) {
         // Fallback: open in new tab
+        pushRecentOpenedTool(tool.id);
         window.open(tool.targetUrl, '_blank');
       }
 
@@ -152,6 +159,37 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       setContent(settings);
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      setRecentOpenedIds(getRecentOpenedToolIds());
+    };
+    refresh();
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === RECENT_OPENED_TOOLS_KEY) {
+        refresh();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('recent-tools-updated', refresh);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('recent-tools-updated', refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleSearch = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      setSearchQuery((detail || '').toString());
+    };
+
+    window.addEventListener('texa-search-change', handleSearch);
+    return () => window.removeEventListener('texa-search-change', handleSearch);
   }, []);
 
   // Fetch user's individual tool accesses
@@ -210,9 +248,18 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
 
   const categories = ['Semua', ...new Set(tools.map(t => t.category))];
 
-  const filteredTools = filter === 'Semua'
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const filteredByCategory = filter === 'Semua'
     ? tools
     : tools.filter(t => t.category === filter);
+  const filteredTools = normalizedSearch
+    ? filteredByCategory.filter((tool) => {
+      const name = (tool.name || '').toLowerCase();
+      const category = (tool.category || '').toLowerCase();
+      const description = (tool.description || '').toLowerCase();
+      return name.includes(normalizedSearch) || category.includes(normalizedSearch) || description.includes(normalizedSearch);
+    })
+    : filteredByCategory;
 
   // Helper function to check access for a specific tool
   // FIXED: Now only checks user_tools table for specific tool access
@@ -221,6 +268,22 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
     // Check if user has access to this specific tool via user_tools table
     return userToolAccesses.some(access => access.tool_id === toolId);
   };
+
+  const orderedTools = filter === 'Semua'
+    ? filteredTools
+      .map((tool, index) => {
+        const accessRank = hasAccessToTool(tool.id) ? 0 : 1;
+        const recentIndex = recentOpenedIds.indexOf(tool.id);
+        const recentRank = recentIndex === -1 ? Number.MAX_SAFE_INTEGER : recentIndex;
+        return { tool, index, accessRank, recentRank };
+      })
+      .sort((a, b) => {
+        if (a.accessRank !== b.accessRank) return a.accessRank - b.accessRank;
+        if (a.recentRank !== b.recentRank) return a.recentRank - b.recentRank;
+        return a.index - b.index;
+      })
+      .map((item) => item.tool)
+    : filteredTools;
 
   return (
     <section id="marketplace" className="py-4 md:py-8 scroll-mt-24">
@@ -304,7 +367,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       {/* Compact Grid View - More columns, smaller cards */}
       {viewMode === 'compact' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4 px-2">
-          {filteredTools.map(tool => (
+          {orderedTools.map(tool => (
             <CompactToolCard
               key={tool.id}
               tool={tool}
@@ -317,7 +380,7 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       {/* Standard Grid View - Original larger cards */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 px-2">
-          {filteredTools.map(tool => (
+          {orderedTools.map(tool => (
             <ToolCard
               key={tool.id}
               tool={tool}
@@ -330,14 +393,22 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
       {/* Empty State */}
       {filteredTools.length === 0 && !loading && (
         <div className="text-center py-16">
-          <div className="text-6xl mb-4">{content?.emptyStateEmoji || '🔍'}</div>
-          <h3 className="text-xl font-bold text-theme-primary mb-2">{content?.emptyStateTitle || 'Tidak ada tools'}</h3>
-          <p className="text-theme-secondary text-sm">{content?.emptyStateSubtitle || 'Coba filter lain'}</p>
+          <div className="text-6xl mb-4">{normalizedSearch ? '🔍' : content?.emptyStateEmoji || '🔍'}</div>
+          <h3 className="text-xl font-bold text-theme-primary mb-2">
+            {normalizedSearch ? 'Tidak ada hasil pencarian' : content?.emptyStateTitle || 'Tidak ada tools'}
+          </h3>
+          <p className="text-theme-secondary text-sm">
+            {normalizedSearch ? 'Coba kata kunci lain' : content?.emptyStateSubtitle || 'Coba filter lain'}
+          </p>
           <button
-            onClick={() => setFilter('Semua')}
+            onClick={() => {
+              setFilter('Semua');
+              setSearchQuery('');
+              window.dispatchEvent(new CustomEvent('texa-search-change', { detail: '' }));
+            }}
             className="mt-4 px-6 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-bold text-sm transition-all"
           >
-            {content?.emptyStateButtonText || 'Lihat Semua'}
+            {normalizedSearch ? 'Reset Pencarian' : content?.emptyStateButtonText || 'Lihat Semua'}
           </button>
         </div>
       )}
@@ -362,4 +433,3 @@ const Marketplace: React.FC<MarketplaceProps> = ({ user }) => {
 };
 
 export default Marketplace;
-

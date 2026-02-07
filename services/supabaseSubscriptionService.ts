@@ -126,7 +126,7 @@ export const DEFAULT_SETTINGS: SubscriptionSettings = {
     perToolPopupDescription: 'Pilih durasi akses untuk tool ini',
     // Default Tokopay Configuration
     tokopayMerchantId: 'M250828KEAYY483',
-    tokopayWebhookUrl: 'https://digistore.texa.ai/api/callback/tokopay',
+    tokopayWebhookUrl: 'https://www.texa.studio/api/callback/tokopay',
     tokopayEnabledMethods: {
         qris: true,
         ewallet: ['DANABALANCE', 'OVOBALANCE', 'SHOPEEPAYBALANCE', 'GOPAYBALANCE'],

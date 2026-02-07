@@ -13,12 +13,13 @@ const STORAGE_KEYS = {
 // Dashboard URLs - uses localhost for development
 const DASHBOARD_URLS = {
     LOCAL: 'http://localhost:3000',
-    PRODUCTION: 'https://texa-canvas.vercel.app'
+    NGROK: 'https://conscienceless-lieselotte-ethnohistoric.ngrok-free.dev',
+    PRODUCTION: 'https://www.texa.studio'
 };
 
-// Get current dashboard URL based on stored origin or default to local
+// Get current dashboard URL based on stored origin or default to production
 function getDashboardUrl() {
-    return DASHBOARD_URLS.LOCAL; // For development
+    return window.__TEXA_DASHBOARD_ORIGIN || DASHBOARD_URLS.PRODUCTION;
 }
 
 class TEXAToolsManager {
@@ -63,6 +64,7 @@ class TEXAToolsManager {
             this.idToken = result[STORAGE_KEYS.TEXA_TOKEN] || '';
             this.user = result[STORAGE_KEYS.TEXA_USER] || null;
             this.lastSync = result[STORAGE_KEYS.LAST_SYNC] || null;
+            window.__TEXA_DASHBOARD_ORIGIN = this.origin || '';
 
             console.log('Loaded user data:', this.user);
         } catch (error) {
@@ -194,6 +196,7 @@ class TEXAToolsManager {
                     : 'Berlangganan untuk mengakses AI Tools premium! 🚀'}
         </div>
       `;
+            this.updateSubscriptionBadge();
             return;
         }
 
@@ -204,12 +207,52 @@ class TEXAToolsManager {
           <div class="tool-url">${this.escapeHtml(this.getDomain(tool.targetUrl))}</div>
         </div>
         <button class="btn-open" onclick="texaManager.openTool('${tool.id}')">
-          Buka
+          🚀 Buka
         </button>
       </div>
     `).join('');
 
         container.innerHTML = `<div class="tools-list">${toolsHtml}</div>`;
+
+        // Update badge with tools count
+        this.updateSubscriptionBadge();
+    }
+
+    updateSubscriptionBadge() {
+        const badge = document.querySelector('.subscription-badge');
+        if (!badge) return;
+
+        const toolsCount = this.tools.length;
+        const isAdmin = this.user?.role === 'ADMIN';
+
+        if (isAdmin) {
+            badge.className = 'subscription-badge sub-active';
+            badge.innerHTML = `
+                <div class="sub-status">
+                    <span class="sub-dot active"></span>
+                    <span class="sub-label active">Admin Access</span>
+                </div>
+                <span class="sub-expiry">${toolsCount} Tools</span>
+            `;
+        } else if (toolsCount > 0) {
+            badge.className = 'subscription-badge sub-active';
+            badge.innerHTML = `
+                <div class="sub-status">
+                    <span class="sub-dot active"></span>
+                    <span class="sub-label active">Aktif</span>
+                </div>
+                <span class="sub-expiry">${toolsCount} Tool${toolsCount > 1 ? 's' : ''}</span>
+            `;
+        } else {
+            badge.className = 'subscription-badge sub-inactive';
+            badge.innerHTML = `
+                <div class="sub-status">
+                    <span class="sub-dot inactive"></span>
+                    <span class="sub-label inactive">Tidak Aktif</span>
+                </div>
+                <span class="sub-expiry">Belum ada tools</span>
+            `;
+        }
     }
 
     renderError(message) {
@@ -264,18 +307,12 @@ class TEXAToolsManager {
     async loadTools() {
         const container = document.getElementById('toolsContainer');
 
-        // Check if user has subscription access
-        const subStatus = this.getSubscriptionStatus();
-
-        if (!subStatus.isActive && this.user?.role !== 'ADMIN') {
+        // Must have user ID to fetch their tools
+        if (!this.user?.id) {
             if (container) {
                 container.innerHTML = `
           <div class="empty-state">
-            Berlangganan untuk mengakses AI Tools premium! 🚀
-            <br><br>
-            <button class="btn-open" onclick="texaManager.openSubscription()">
-              Lihat Paket
-            </button>
+            Silakan login terlebih dahulu untuk melihat tools Anda 🔐
           </div>
         `;
             }
@@ -283,24 +320,65 @@ class TEXAToolsManager {
         }
 
         try {
-            // Try to fetch from API if origin is set
-            if (this.origin && this.idToken) {
-                const response = await fetch(`${this.origin}/api/catalog`, {
-                    headers: {
-                        'Authorization': `Bearer ${this.idToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+            // Determine API base URL (admin server or origin)
+            const apiBaseUrl = this.origin && (this.origin.includes('localhost') || this.origin.includes('127.0.0.1'))
+                ? 'http://127.0.0.1:8787'
+                : this.origin || 'http://127.0.0.1:8787';
 
-                if (response.ok) {
-                    const data = await response.json();
-                    this.tools = data?.tools || data || [];
-
-                    // Filter only active tools
-                    if (Array.isArray(this.tools)) {
-                        this.tools = this.tools.filter(t => t.status === 'active');
-                    }
+            // 1. Fetch user's purchased tools
+            const userToolsResponse = await fetch(`${apiBaseUrl}/api/public/user-tools?userId=${this.user.id}`, {
+                headers: {
+                    'Content-Type': 'application/json'
                 }
+            });
+
+            let userToolIds = [];
+            if (userToolsResponse.ok) {
+                const userToolsData = await userToolsResponse.json();
+                // Get list of tool IDs user has access to
+                userToolIds = (userToolsData.data || []).map(ut => ut.tool_id);
+                console.log('[TEXA Popup] User has access to', userToolIds.length, 'tools');
+            }
+
+            // 2. Fetch full catalog to get tool details
+            const catalogResponse = await fetch(`${apiBaseUrl}/api/catalog`, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (catalogResponse.ok) {
+                const catalogData = await catalogResponse.json();
+                const allTools = catalogData?.tools || catalogData || [];
+
+                // Admin has access to all tools
+                if (this.user.role === 'ADMIN') {
+                    this.tools = Array.isArray(allTools) ? allTools.filter(t => t.status === 'active') : [];
+                } else {
+                    // Filter tools to only those user has purchased
+                    this.tools = Array.isArray(allTools)
+                        ? allTools.filter(t => userToolIds.includes(t.id) && t.status === 'active')
+                        : [];
+                }
+            }
+
+            // 3. Render tools or show subscription prompt
+            if (this.tools.length === 0 && this.user.role !== 'ADMIN') {
+                if (container) {
+                    container.innerHTML = `
+            <div class="empty-state">
+              <div style="font-size: 32px; margin-bottom: 12px;">🧰</div>
+              <div style="margin-bottom: 12px; font-weight: 600;">Belum Ada AI Tools</div>
+              <div style="color: var(--text-muted); font-size: 11px; margin-bottom: 16px;">
+                Beli tools AI premium di dashboard untuk mulai menggunakan!
+              </div>
+              <button class="btn-open" onclick="texaManager.openSubscription()" style="padding: 10px 24px; font-size: 12px;">
+                🛒 Lihat Katalog
+              </button>
+            </div>
+          `;
+                }
+                return;
             }
 
             this.renderTools();
@@ -309,7 +387,7 @@ class TEXAToolsManager {
             if (container) {
                 container.innerHTML = `
           <div class="error-msg">
-            Gagal memuat tools. Cek koneksi internet.
+            Gagal memuat tools. Pastikan terhubung ke internet.
           </div>
         `;
             }

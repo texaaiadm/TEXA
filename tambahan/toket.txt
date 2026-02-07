@@ -114,12 +114,13 @@
 
         // --- Firebase Configuration ---
         const firebaseConfig = {
-          apiKey: "AIzaSyAUSD1JPLIM3JstfC5vG_jdnek0FrcNdHA",
-          authDomain: "texa-ai.firebaseapp.com",
-          projectId: "texa-ai",
-          storageBucket: "texa-ai.firebasestorage.app",
-          messagingSenderId: "727237042267",
-          appId: "1:727237042267:web:244ccca7363b20377f9f7e"
+          apiKey: "AIzaSyBYHrCidW3vrJHldgEbHqjeYYphl5f7DlM",
+          authDomain: "texa-f4b30.firebaseapp.com",
+          projectId: "texa-f4b30",
+          storageBucket: "texa-f4b30.firebasestorage.app",
+          messagingSenderId: "922894298029",
+          appId: "1:922894298029:web:5c1bf375c2bb61b0cb8f24",
+          measurementId: "G-QVBGFMKBG9"
         };
 
         // Initialize Firebase

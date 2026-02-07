@@ -19,9 +19,12 @@ export interface TexaUser {
 type AuthCallback = (user: TexaUser | null) => void;
 
 // Admin email list - users with these emails get ADMIN role automatically
+// NOTE: Users can also be promoted to ADMIN via the dashboard
+// Those promotions are preserved in database and not overwritten
 const ADMIN_EMAILS = [
     'teknoaiglobal.adm@gmail.com',
-    'teknoaiglobal@gmail.com'
+    'teknoaiglobal@gmail.com',
+    'texa.ai.adm@gmail.com'  // Added as admin
 ];
 
 // Check if email is admin
@@ -232,13 +235,24 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
 
                     const texaUser = await mapSupabaseUser(session.user);
 
-                    // Upsert user profile
+                    // Upsert user profile - PRESERVE existing role from database!
+                    // First check if user exists and get their current role
+                    const { data: existingUser } = await supabase
+                        .from('users')
+                        .select('role')
+                        .eq('id', session.user.id)
+                        .single();
+
+                    // Determine role: keep existing role, or use checkIfAdmin for new users
+                    const roleToUse = existingUser?.role ||
+                        (checkIfAdmin(session.user.email || '') ? 'ADMIN' : 'MEMBER');
+
                     await supabase.from('users').upsert({
                         id: session.user.id,
                         email: session.user.email,
                         name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
                         photo_url: session.user.user_metadata?.avatar_url,
-                        role: checkIfAdmin(session.user.email || '') ? 'ADMIN' : 'MEMBER',
+                        role: roleToUse,
                         last_login: new Date().toISOString()
                     }, { onConflict: 'id' });
 

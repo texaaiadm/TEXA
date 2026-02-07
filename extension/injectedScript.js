@@ -6,20 +6,50 @@
 
     /**
      * Opens a tool by fetching cookies from apiUrl and injecting them before navigation.
-     * @param {string} toolId 
-     * @param {string} targetUrl 
-     * @param {string} apiUrl 
+     * Returns a Promise that resolves when tool is opened.
      */
-    openTool: function (toolId, targetUrl, apiUrl) {
-      console.log('TEXA Extension: Opening tool', toolId, targetUrl, apiUrl);
+    openTool: function (toolId, targetUrl, apiUrl, cookiesData, idToken) {
+      console.log('🚀 TEXA Extension: Opening tool', toolId, targetUrl);
 
-      window.postMessage({
-        source: 'TEXA_DASHBOARD',
-        type: 'TEXA_OPEN_TOOL',
-        toolId: toolId,
-        targetUrl: targetUrl,
-        apiUrl: apiUrl
-      }, window.location.origin);
+      const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          console.log('⚠️ TEXA Extension: Timeout, fallback to window.open');
+          window.removeEventListener('message', onAck);
+          window.open(targetUrl, '_blank');
+          resolve(true);
+        }, 3000);
+
+        const onAck = (event) => {
+          if (event.origin !== window.location.origin) return;
+          const data = event.data || {};
+          if (data.type !== 'TEXA_OPEN_TOOL_ACK') return;
+          if (data.requestId !== requestId) return;
+
+          clearTimeout(timeout);
+          window.removeEventListener('message', onAck);
+          console.log('✅ TEXA Extension: ACK received', data.ok);
+
+          if (!data.ok && targetUrl) {
+            window.open(targetUrl, '_blank');
+          }
+          resolve(data.ok);
+        };
+
+        window.addEventListener('message', onAck);
+
+        window.postMessage({
+          source: 'TEXA_DASHBOARD',
+          type: 'TEXA_OPEN_TOOL',
+          requestId: requestId,
+          toolId: toolId,
+          targetUrl: targetUrl,
+          apiUrl: apiUrl,
+          cookiesData: cookiesData || null,
+          idToken: idToken || null
+        }, window.location.origin);
+      });
     },
 
     /**

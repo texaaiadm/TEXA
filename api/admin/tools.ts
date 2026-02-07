@@ -90,7 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // POST - Create new tool
     if (req.method === 'POST') {
-        const { name, description, category, imageUrl, targetUrl, status, priceMonthly } = req.body;
+        const { name, description, category, imageUrl, targetUrl, status, priceMonthly, cookiesData, apiUrl } = req.body;
 
         if (!name) {
             return res.status(400).json({ success: false, message: 'Tool name is required' });
@@ -114,6 +114,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 category: category || '',
                 image_url: imageUrl || '',
                 tool_url: targetUrl || '',
+                cookies_data: cookiesData || null,
+                api_url: apiUrl || null,
                 is_active: status === 'active',
                 is_premium: true,
                 price_monthly: Number(priceMonthly) || 0,

@@ -9,6 +9,7 @@ import { checkExtensionInstalled } from '../services/extensionService';
 import { usePopupState } from '../services/popupContext';
 import ExtensionWarningPopup from './ExtensionWarningPopup';
 import CheckoutPopup from './CheckoutPopup';
+import { pushRecentOpenedTool } from '../utils/recentTools';
 
 interface CompactToolCardProps {
     tool: AITool;
@@ -36,9 +37,12 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
     }, []);
 
     const tryOpenViaExtension = async (): Promise<boolean> => {
+        const session = await getSession();
+        const idToken = session?.access_token || null;
+
         if (window.TEXAExtension && window.TEXAExtension.ready) {
             try {
-                window.TEXAExtension.openTool(tool.id, tool.targetUrl, tool.apiUrl);
+                window.TEXAExtension.openTool(tool.id, tool.targetUrl, tool.apiUrl, tool.cookiesData || null, idToken);
                 return true;
             } catch (error) {
                 return false;
@@ -46,8 +50,6 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
         }
 
         const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const session = await getSession();
-        const idToken = session?.access_token || null;
 
         return await new Promise<boolean>((resolve) => {
             const timeoutId = window.setTimeout(() => {
@@ -83,6 +85,8 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
             setShowCheckoutPopup(true);
             return;
         }
+
+        pushRecentOpenedTool(tool.id);
 
         const canIframe = tool.openMode === 'iframe' && isUrlIframeAllowed(tool.targetUrl);
         if (canIframe) {
@@ -238,4 +242,3 @@ const CompactToolCard: React.FC<CompactToolCardProps> = ({ tool, hasAccess }) =>
 };
 
 export default CompactToolCard;
-

@@ -7,15 +7,18 @@
     <style>
         :root {
             --bg-color: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
+            --card-bg: rgba(30, 41, 59, 0.65);
+            --card-glass: rgba(255, 255, 255, 0.03);
             --primary-color: #3b82f6;
             --accent-color: #06b6d4;
+            --purple-accent: #a78bfa;
             --success-color: #10b981;
             --warning-color: #f59e0b;
             --danger-color: #ef4444;
             --text-color: #e2e8f0;
             --text-muted: #94a3b8;
             --border-radius: 16px;
+            --glass-border: rgba(255, 255, 255, 0.08);
         }
 
         * {
@@ -161,10 +164,18 @@
         /* Profile Card */
         .profile-card {
             background: var(--card-bg);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
             border-radius: var(--border-radius);
             padding: 16px;
             margin-bottom: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .profile-card:hover {
+            border-color: rgba(59, 130, 246, 0.2);
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
         }
 
         .profile-header {
@@ -492,19 +503,23 @@
 
         .tool-item {
             background: var(--card-bg);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-border);
             border-radius: 12px;
             padding: 12px;
             margin-bottom: 10px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
         }
 
         .tool-item:hover {
-            border-color: rgba(59, 130, 246, 0.3);
+            border-color: rgba(59, 130, 246, 0.4);
             background: rgba(30, 41, 59, 0.9);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.15);
         }
 
         .tool-info {

@@ -139,7 +139,7 @@ async function scrapeViaBackgroundTab() {
 
         // Create tab in background (not focused, not active)
         const tab = await chrome.tabs.create({
-            url: 'https://labs.google/fx/flow',
+            url: GOOGLE_LABS_URL,
             active: false,  // Not focused
             pinned: false
         });
@@ -855,95 +855,147 @@ async function forceOpenAndScrape() {
 // TOOL OPENING - Supports both direct cookies and API fetch
 // =============================================
 
+async function clearCookiesForTarget(targetUrl) {
+    if (!targetUrl) return;
+    try {
+        console.log('🧹 TEXA: Clearing cookies for URL:', targetUrl);
+        const cookies = await chrome.cookies.getAll({ url: targetUrl });
+        let removed = 0;
+
+        for (const cookie of cookies) {
+            try {
+                await chrome.cookies.remove({ url: targetUrl, name: cookie.name });
+                removed++;
+            } catch (e) {
+                console.log('⚠️ TEXA: Failed to remove cookie:', cookie.name, e.message);
+            }
+        }
+
+        console.log(`🧹 TEXA: Removed ${removed} cookies for target URL`);
+    } catch (e) {
+        console.log('⚠️ TEXA: Error clearing cookies:', e.message);
+    }
+}
+
+function normalizeTargetUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return null;
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return null;
+    try {
+        return new URL(trimmed).toString();
+    } catch {
+        try {
+            return new URL(`https://${trimmed}`).toString();
+        } catch {
+            return null;
+        }
+    }
+}
+
 async function handleOpenTool(data) {
+    // DEBUG: Log raw data received
+    console.log('🔍 TEXA handleOpenTool raw data:', JSON.stringify(data, null, 2));
+
     const { targetUrl, apiUrl, cookiesData, authHeader, idToken } = data;
+    console.log('🔍 TEXA: targetUrl value:', targetUrl, 'type:', typeof targetUrl);
 
-    console.log('🔧 TEXA: Opening tool:', targetUrl);
-    console.log('🔧 TEXA: cookiesData:', cookiesData ? 'Provided' : 'None');
-    console.log('🔧 TEXA: apiUrl:', apiUrl || 'None');
+    const safeTargetUrl = normalizeTargetUrl(targetUrl);
 
+    console.log('🚀 TEXA: Fast opening tool:', safeTargetUrl);
+
+    if (!safeTargetUrl) {
+        console.log('❌ TEXA: normalizeTargetUrl returned null for:', targetUrl);
+        return { success: false, error: 'Invalid target URL' };
+    }
+
+    // OPTIMIZATION: Open tab IMMEDIATELY first for instant feedback
+    let tab;
+    try {
+        tab = await chrome.tabs.create({ url: safeTargetUrl });
+        console.log('✅ TEXA: Tab opened instantly:', tab?.id);
+    } catch (tabError) {
+        console.error('❌ TEXA: Tab creation failed:', tabError.message);
+        return { success: false, error: `Failed to create tab: ${tabError.message}` };
+    }
+
+    // OPTIMIZATION: Inject cookies in background while tab is loading
     let cookiesInjected = 0;
+    const cookiePromises = [];
 
-    // Priority 1: Use direct cookiesData from tool settings (Edit Tools)
+    // Collect cookies from cookiesData
     if (cookiesData) {
         try {
-            console.log('🍪 TEXA: Injecting cookies from tool settings (cookiesData)...');
             const cookies = parseCookiesData(cookiesData);
-
             for (const cookie of cookies) {
-                try {
-                    await setCookie(cookie, targetUrl);
-                    cookiesInjected++;
-                } catch (e) {
-                    console.log('⚠️ TEXA: Failed to set cookie:', cookie.name, e.message);
-                }
+                cookiePromises.push(
+                    setCookie(cookie, safeTargetUrl)
+                        .then(() => { cookiesInjected++; })
+                        .catch(() => { }) // Silently ignore failed cookies
+                );
             }
-            console.log(`✅ TEXA: Injected ${cookiesInjected} cookies from cookiesData`);
         } catch (e) {
-            console.error('❌ TEXA: Error parsing cookiesData:', e.message);
+            console.log('⚠️ TEXA: cookiesData parse error');
         }
     }
 
-    // Priority 2: Fetch cookies from API URL (if no cookiesData or as additional source)
+    // Collect cookies from API (in parallel with cookiesData)
     if (apiUrl) {
-        try {
-            console.log('🌐 TEXA: Fetching cookies from API:', apiUrl);
-
-            const headers = {};
-            if (authHeader) {
-                headers['Authorization'] = authHeader;
-            } else if (idToken) {
-                headers['Authorization'] = `Bearer ${idToken}`;
-            }
-
-            const response = await fetch(apiUrl, {
-                headers: Object.keys(headers).length > 0 ? headers : undefined
-            });
-
-            if (response.ok) {
-                const apiData = await response.json();
-                const cookies = extractCookiesFromAPI(apiData);
-
-                for (const cookie of cookies) {
-                    try {
-                        await setCookie(cookie, targetUrl);
-                        cookiesInjected++;
-                    } catch (e) {
-                        console.log('⚠️ TEXA: Failed to set API cookie:', cookie.name, e.message);
-                    }
+        const apiCookiePromise = (async () => {
+            try {
+                const headers = {};
+                if (authHeader) {
+                    headers['Authorization'] = authHeader;
+                } else if (idToken) {
+                    headers['Authorization'] = `Bearer ${idToken}`;
                 }
-                console.log(`✅ TEXA: Injected ${cookies.length} cookies from API`);
-            } else {
-                console.log('⚠️ TEXA: API response not OK:', response.status);
+
+                const response = await fetch(apiUrl, {
+                    headers: Object.keys(headers).length > 0 ? headers : undefined
+                });
+
+                if (response.ok) {
+                    const apiData = await response.json();
+                    const cookies = extractCookiesFromAPI(apiData);
+
+                    await Promise.all(cookies.map(cookie =>
+                        setCookie(cookie, safeTargetUrl)
+                            .then(() => { cookiesInjected++; })
+                            .catch(() => { })
+                    ));
+                }
+            } catch (e) {
+                // Silently continue - cookies are optional
             }
-        } catch (e) {
-            console.error('❌ TEXA: Error fetching from API:', e.message);
+        })();
+        cookiePromises.push(apiCookiePromise);
+    }
+
+    // Wait for all cookies to be set (but tab is already open!)
+    if (cookiePromises.length > 0) {
+        await Promise.all(cookiePromises);
+        console.log(`🍪 TEXA: ${cookiesInjected} cookies injected`);
+
+        // Refresh tab to apply cookies if any were injected
+        if (cookiesInjected > 0 && tab?.id) {
+            try {
+                await chrome.tabs.reload(tab.id);
+            } catch (e) { }
         }
     }
 
-    console.log(`🎯 TEXA: Total cookies injected: ${cookiesInjected}`);
-
-    // Open the target URL and inject overlay
-    const tab = await chrome.tabs.create({ url: targetUrl });
-
-    // Inject overlay script after page loads (with delay for page to render)
-    if (tab.id) {
+    // Inject overlay script after page loads
+    if (tab?.id) {
         chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
             if (tabId === tab.id && info.status === 'complete') {
                 chrome.tabs.onUpdated.removeListener(listener);
-
-                // Inject overlay after a small delay
                 setTimeout(async () => {
                     try {
                         await chrome.scripting.executeScript({
                             target: { tabId: tab.id },
                             files: ['overlayScript.js']
                         });
-                        console.log('🎨 TEXA: Overlay injected on opened tool');
-                    } catch (e) {
-                        console.log('⚠️ TEXA: Could not inject overlay:', e.message);
-                    }
-                }, 500);
+                    } catch (e) { }
+                }, 300);
             }
         });
     }
@@ -1027,20 +1079,30 @@ function extractCookiesFromAPI(data) {
 }
 
 function setCookie(c, targetUrl) {
-    const domain = c.domain || new URL(targetUrl).hostname;
+    const urlObj = new URL(targetUrl);
+    const baseHost = urlObj.host;
+    const name = c.name;
+    const isHostPrefix = typeof name === 'string' && name.startsWith('__Host-');
+    const isSecurePrefix = typeof name === 'string' && name.startsWith('__Secure-');
+
     const cookieDetails = {
-        url: c.url || `https://${domain.replace(/^\./, '')}${c.path || '/'}`,
-        name: c.name,
+        url: c.url || `${urlObj.protocol}//${(c.domain || baseHost).replace(/^\./, '')}${c.path || '/'}`,
+        name: name,
         value: c.value,
-        path: c.path || '/',
-        secure: c.secure !== false,
+        path: isHostPrefix ? '/' : (c.path || '/'),
+        secure: isHostPrefix ? true : (isSecurePrefix ? true : (c.secure !== false)),
         httpOnly: c.httpOnly === true
     };
 
-    // Add optional fields if present
-    if (c.domain) cookieDetails.domain = c.domain;
-    if (c.expirationDate) cookieDetails.expirationDate = c.expirationDate;
-    if (c.sameSite) cookieDetails.sameSite = c.sameSite;
+    if (!isHostPrefix && c.domain) {
+        cookieDetails.domain = c.domain;
+    }
+    if (c.expirationDate && !c.session) {
+        cookieDetails.expirationDate = c.expirationDate;
+    }
+    if (c.sameSite) {
+        cookieDetails.sameSite = c.sameSite;
+    }
 
     return chrome.cookies.set(cookieDetails);
 }

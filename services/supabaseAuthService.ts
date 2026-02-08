@@ -158,20 +158,43 @@ export const signIn = async (email: string, password: string): Promise<{ user: T
     }
 };
 
-// Sign in with Google OAuth using popup
+// Sign in with Google OAuth — redirect-based for production, popup for localhost
 export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error: string | null }> => {
     try {
-        // Build the redirect URL — Supabase will redirect here after Google auth
-        // The popup will land on this URL with hash fragments containing tokens
         const redirectUrl = window.location.origin;
-        console.log('🔐 TEXA Auth: Starting Google OAuth, redirectTo:', redirectUrl);
+        const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-        // Get OAuth URL without redirecting
+        console.log('🔐 TEXA Auth: Starting Google OAuth, redirectTo:', redirectUrl, 'isLocalDev:', isLocalDev);
+
+        if (!isLocalDev) {
+            // ── PRODUCTION: Use redirect flow (no popup) ──
+            // This avoids COOP issues on custom domains like www.texa.studio
+            // After Google auth, browser redirects back to our origin
+            // onAuthChange in App.tsx will automatically pick up the session
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: redirectUrl
+                    // skipBrowserRedirect is NOT set — we WANT the redirect
+                }
+            });
+
+            if (error) {
+                console.error('❌ TEXA Auth: OAuth redirect error:', error.message);
+                return { user: null, error: error.message };
+            }
+
+            // The browser will navigate away now — this code won't execute
+            // But we return a "pending" result just in case
+            return { user: null, error: null };
+        }
+
+        // ── LOCALHOST: Use popup flow (COOP is not an issue on localhost) ──
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
                 redirectTo: redirectUrl,
-                skipBrowserRedirect: true  // Don't redirect main window
+                skipBrowserRedirect: true
             }
         });
 
@@ -184,9 +207,8 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
             return { user: null, error: 'Failed to get OAuth URL' };
         }
 
-        console.log('🔐 TEXA Auth: Opening popup for Google OAuth');
+        console.log('🔐 TEXA Auth: Opening popup for Google OAuth (localhost)');
 
-        // Open popup window for Google OAuth
         const width = 500;
         const height = 600;
         const left = window.screenX + (window.outerWidth - width) / 2;
@@ -213,16 +235,8 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                 }
             };
 
-            // Helper function to close popup and focus main window
             const closePopupAndFocus = () => {
-                const tryClose = () => {
-                    try {
-                        if (popup && !popup.closed) popup.close();
-                    } catch (e) { /* ignore COOP errors */ }
-                };
-                tryClose();
-                setTimeout(tryClose, 200);
-                setTimeout(tryClose, 800);
+                try { if (popup && !popup.closed) popup.close(); } catch (e) { /* ignore */ }
                 try { window.focus(); } catch (e) { /* ignore */ }
             };
 
@@ -233,10 +247,9 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                 closePopupAndFocus();
 
                 console.log('✅ TEXA Auth: Google login success:', session.user.email);
-
                 const texaUser = await mapSupabaseUser(session.user);
 
-                // Upsert user profile — PRESERVE existing role from database!
+                // Upsert user profile
                 try {
                     const { data: existingUser } = await supabase
                         .from('users')
@@ -262,26 +275,20 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                 resolve({ user: texaUser, error: null });
             };
 
-            // Method 1: Listen for auth state change (primary method)
+            // Listen for auth state change
             const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
                 console.log('🔐 TEXA Auth popup listener:', event);
                 if (resolved) return;
-
                 if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
                     subscription.unsubscribe();
                     await finishLogin(session);
                 }
             });
 
-            // Method 2: Poll popup URL for hash fragments (backup for COOP-blocked scenarios)
+            // Poll for popup closed
             checkPopupInterval = setInterval(async () => {
                 try {
-                    if (resolved) {
-                        cleanup();
-                        return;
-                    }
-
-                    // Check if popup was closed by user (cancelled)
+                    if (resolved) { cleanup(); return; }
                     if (popup.closed) {
                         if (!resolved) {
                             resolved = true;
@@ -293,16 +300,12 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                         return;
                     }
 
-                    // Try to read popup URL for hash fragments with tokens
-                    // This works when popup redirects back to our origin
+                    // Try reading popup URL for hash tokens
                     try {
                         const popupUrl = popup.location.href;
                         if (popupUrl && popupUrl.includes('access_token=')) {
                             console.log('🔐 TEXA Auth: Found tokens in popup URL');
-                            // Extract tokens and set session
-                            const hashParams = new URLSearchParams(
-                                popupUrl.split('#')[1] || ''
-                            );
+                            const hashParams = new URLSearchParams(popupUrl.split('#')[1] || '');
                             const access_token = hashParams.get('access_token');
                             const refresh_token = hashParams.get('refresh_token');
 
@@ -311,7 +314,6 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                                 cleanup();
                                 closePopupAndFocus();
 
-                                // Set session from tokens
                                 const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
                                     access_token,
                                     refresh_token
@@ -329,14 +331,14 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                             }
                         }
                     } catch (e) {
-                        // Cross-origin — can't read popup URL, rely on auth state change
+                        // Cross-origin — can't read popup URL
                     }
                 } catch (e) {
-                    // COOP may block popup.closed check, just continue
+                    // COOP may block popup.closed check
                 }
             }, 500);
 
-            // Timeout after 2 minutes (reduced from 5 min — if it takes that long, something is wrong)
+            // Timeout after 2 minutes
             setTimeout(() => {
                 if (!resolved) {
                     resolved = true;

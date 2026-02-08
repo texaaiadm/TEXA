@@ -296,6 +296,9 @@ const App: React.FC = () => {
       // Load dynamic iframe hosts from DB on app init
       fetchIframeHostsFromDB().catch(() => { });
 
+      // Track whether we've ever had a confirmed user from Supabase
+      let hadConfirmedUser = false;
+
       try {
         // Try to restore user from localStorage cache first for instant UI
         const cachedUser = window.localStorage.getItem('texa_current_user');
@@ -305,6 +308,7 @@ const App: React.FC = () => {
             if (parsed && parsed.id && parsed.email) {
               setUser(parsed);
               setLoading(false); // Show UI immediately with cached user
+              hadConfirmedUser = true;  // We had a cached user
             }
           } catch (e) {
             // Invalid cached user, ignore
@@ -312,50 +316,61 @@ const App: React.FC = () => {
         }
 
         // onAuthChange is the SINGLE source of truth for auth state
-        // It handles INITIAL_SESSION, SIGNED_IN, TOKEN_REFRESHED, SIGNED_OUT
-        // and has a 3s fallback if INITIAL_SESSION doesn't fire
         unsubscribe = onAuthChange(async (texaUser) => {
           try {
-            setUser(texaUser);
-            setLoading(false);
-
             if (texaUser) {
-              // Sync with extension - get access token from Supabase session
-              const { getSession } = await import('./services/supabaseAuthService');
-              const session = await getSession();
-              const accessToken = session?.access_token || null;
+              // User confirmed by Supabase — update state + cache
+              hadConfirmedUser = true;
+              setUser(texaUser);
+              setLoading(false);
 
-              // Save to localStorage for extension to read
-              if (accessToken) {
-                window.localStorage.setItem('texa_id_token', accessToken);
-                window.localStorage.setItem('texa_user_email', texaUser.email || '');
-                window.localStorage.setItem('texa_user_role', texaUser.role || '');
-                window.localStorage.setItem('texa_user_name', texaUser.name || '');
-                window.localStorage.setItem('texa_subscription_end', texaUser.subscriptionEnd || '');
-                window.localStorage.setItem('texa_current_user', JSON.stringify(texaUser));
-              }
+              // Sync with extension in background (non-blocking)
+              import('./services/supabaseAuthService').then(async ({ getSession }) => {
+                try {
+                  const session = await getSession();
+                  const accessToken = session?.access_token || null;
 
-              // Send user profile to extension via postMessage
-              window.postMessage({
-                source: 'TEXA_DASHBOARD',
-                type: 'TEXA_LOGIN_SYNC',
-                origin: window.location.origin,
-                idToken: accessToken,
-                user: {
-                  id: texaUser.id,
-                  email: texaUser.email,
-                  name: texaUser.name,
-                  role: texaUser.role,
-                  subscriptionEnd: texaUser.subscriptionEnd,
-                  isActive: texaUser.isActive,
-                  photoURL: texaUser.photoURL,
-                  createdAt: texaUser.createdAt,
-                  lastLogin: texaUser.lastLogin
+                  if (accessToken) {
+                    window.localStorage.setItem('texa_id_token', accessToken);
+                    window.localStorage.setItem('texa_user_email', texaUser.email || '');
+                    window.localStorage.setItem('texa_user_role', texaUser.role || '');
+                    window.localStorage.setItem('texa_user_name', texaUser.name || '');
+                    window.localStorage.setItem('texa_subscription_end', texaUser.subscriptionEnd || '');
+                    window.localStorage.setItem('texa_current_user', JSON.stringify(texaUser));
+                  }
+
+                  window.postMessage({
+                    source: 'TEXA_DASHBOARD',
+                    type: 'TEXA_LOGIN_SYNC',
+                    origin: window.location.origin,
+                    idToken: accessToken,
+                    user: {
+                      id: texaUser.id,
+                      email: texaUser.email,
+                      name: texaUser.name,
+                      role: texaUser.role,
+                      subscriptionEnd: texaUser.subscriptionEnd,
+                      isActive: texaUser.isActive,
+                      photoURL: texaUser.photoURL,
+                      createdAt: texaUser.createdAt,
+                      lastLogin: texaUser.lastLogin
+                    }
+                  }, window.location.origin);
+                } catch (e) {
+                  console.warn('TEXA: Extension sync error:', e);
                 }
-              }, window.location.origin);
+              });
             } else {
-              // User signed out — clear all cached data
-              clearLocalAuthData();
+              // Supabase says no user
+              // Only clear state if we PREVIOUSLY had a confirmed user (actual sign-out)
+              // or we never had a cached user (genuinely not logged in)
+              if (hadConfirmedUser || !window.localStorage.getItem('texa_current_user')) {
+                setUser(null);
+                clearLocalAuthData();
+              }
+              // If we have a cached user but Supabase hasn't confirmed yet, 
+              // keep the cached user visible — Supabase might still be initializing
+              setLoading(false);
             }
           } catch (error) {
             console.error('TEXA auth sync error:', error);

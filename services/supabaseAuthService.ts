@@ -34,9 +34,17 @@ const checkIfAdmin = (email: string): boolean => {
     return ADMIN_EMAILS.some((adminEmail) => normalizedEmail === adminEmail.toLowerCase());
 };
 
-// Convert Supabase user to TexaUser
+// In-memory cache for user profile to avoid hitting DB on every auth event
+let cachedProfile: { id: string; data: TexaUser } | null = null;
+
+// Convert Supabase user to TexaUser (with cache)
 const mapSupabaseUser = async (user: User | null): Promise<TexaUser | null> => {
     if (!user) return null;
+
+    // Return cached profile if same user (avoids DB hit on TOKEN_REFRESHED etc.)
+    if (cachedProfile && cachedProfile.id === user.id) {
+        return cachedProfile.data;
+    }
 
     try {
         // Get user profile from users table
@@ -47,9 +55,8 @@ const mapSupabaseUser = async (user: User | null): Promise<TexaUser | null> => {
             .single();
 
         if (error || !profile) {
-            // Create default profile if not exists
             const userEmail = user.email || '';
-            return {
+            const result: TexaUser = {
                 id: user.id,
                 email: userEmail,
                 name: user.user_metadata?.full_name || user.email?.split('@')[0] || '',
@@ -59,13 +66,14 @@ const mapSupabaseUser = async (user: User | null): Promise<TexaUser | null> => {
                 createdAt: user.created_at,
                 lastLogin: new Date().toISOString()
             };
+            cachedProfile = { id: user.id, data: result };
+            return result;
         }
 
         const userEmail = profile.email || user.email || '';
-        // Auto-assign ADMIN role if email matches admin list
         const role = checkIfAdmin(userEmail) ? 'ADMIN' : (profile.role || 'MEMBER');
 
-        return {
+        const result: TexaUser = {
             id: profile.id,
             email: userEmail,
             name: profile.name || user.user_metadata?.full_name || '',
@@ -76,10 +84,12 @@ const mapSupabaseUser = async (user: User | null): Promise<TexaUser | null> => {
             createdAt: profile.created_at,
             lastLogin: profile.last_login || new Date().toISOString()
         };
+        cachedProfile = { id: user.id, data: result };
+        return result;
     } catch (error) {
         console.error('Error mapping Supabase user:', error);
         const userEmail = user.email || '';
-        return {
+        const result: TexaUser = {
             id: user.id,
             email: userEmail,
             name: user.user_metadata?.full_name || '',
@@ -87,6 +97,8 @@ const mapSupabaseUser = async (user: User | null): Promise<TexaUser | null> => {
             role: checkIfAdmin(userEmail) ? 'ADMIN' : 'MEMBER',
             isActive: true
         };
+        cachedProfile = { id: user.id, data: result };
+        return result;
     }
 };
 
@@ -359,6 +371,7 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
 export const signOut = async (): Promise<{ error: string | null }> => {
     try {
         console.log('🔐 TEXA Auth: Signing out (global scope)...');
+        cachedProfile = null; // Clear profile cache
         const { error } = await supabase.auth.signOut({ scope: 'global' });
         if (error) {
             console.error('❌ TEXA Auth: Sign out error:', error.message);

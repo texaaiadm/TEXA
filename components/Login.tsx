@@ -88,14 +88,31 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     try {
       const { user, error: googleError } = await signInWithGoogle();
-      if (googleError) throw new Error(googleError);
+
+      if (googleError) {
+        // Actual error (popup blocked, timeout, etc)
+        throw new Error(googleError);
+      }
+
       if (user) {
+        // Popup flow (localhost) — user returned immediately
+        console.log('✅ Login: Google popup login success');
         onLogin(user);
         navigate('/', { replace: true });
+      } else {
+        // Redirect flow (production) — signInWithGoogle returned null and browser will redirect
+        // OR popup was cancelled — either way, keep loading state
+        // The useEffect checkAuth will pick up the session after redirect
+        console.log('🔐 Login: Redirect flow initiated or popup cancelled');
+
+        // Set a timeout to reset loading if redirect doesn't happen within 30s
+        setTimeout(() => {
+          setLoading(false);
+        }, 30000);
       }
     } catch (err: any) {
+      console.error('❌ Login: Google login error:', err);
       setError(err.message || 'Gagal login dengan Google');
-    } finally {
       setLoading(false);
     }
   };

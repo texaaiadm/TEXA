@@ -330,8 +330,8 @@ class TEXAToolsManager {
                 // Production - use the origin (Vercel handles API routes via serverless functions)
                 apiBaseUrl = this.origin;
             } else {
-                // Fallback to ngrok for dev or production
-                apiBaseUrl = DASHBOARD_URLS.NGROK;
+                // Fallback to production
+                apiBaseUrl = DASHBOARD_URLS.PRODUCTION;
             }
             console.log('[TEXA Popup] Origin:', this.origin);
             console.log('[TEXA Popup] Using API base URL:', apiBaseUrl);
@@ -366,18 +366,29 @@ class TEXAToolsManager {
                 // Helper function to check if tool is active
                 const isToolActive = (t) => t.status === 'active' || t.is_active === true || t.isActive === true;
 
+                // Normalize snake_case fields from API to camelCase
+                const normalizeTool = (t) => ({
+                    ...t,
+                    targetUrl: t.targetUrl || t.tool_url || '',
+                    cookiesData: t.cookiesData || t.cookies_data || null,
+                    apiUrl: t.apiUrl || t.api_url || null,
+                    openMode: t.openMode || t.open_mode || 'new_tab',
+                    imageUrl: t.imageUrl || t.image_url || '',
+                    status: t.status || (t.is_active ? 'active' : 'inactive')
+                });
+
                 // Admin has access to all tools
                 if (this.user.role === 'ADMIN') {
-                    this.tools = Array.isArray(allTools) ? allTools.filter(isToolActive) : [];
+                    this.tools = Array.isArray(allTools) ? allTools.filter(isToolActive).map(normalizeTool) : [];
                     // If no tools after filter, show all (possibly different data format)
                     if (this.tools.length === 0 && allTools.length > 0) {
                         console.log('[TEXA Popup] ADMIN: No active filter match, showing all tools');
-                        this.tools = allTools;
+                        this.tools = allTools.map(normalizeTool);
                     }
                 } else {
                     // Filter tools to only those user has purchased
                     this.tools = Array.isArray(allTools)
-                        ? allTools.filter(t => userToolIds.includes(t.id) && isToolActive(t))
+                        ? allTools.filter(t => userToolIds.includes(t.id) && isToolActive(t)).map(normalizeTool)
                         : [];
                 }
                 console.log('[TEXA Popup] Filtered tools:', this.tools.length);
@@ -430,15 +441,23 @@ class TEXAToolsManager {
                 btn.disabled = true;
             }
 
-            const apiUrl = tool.apiUrl || tool.accessUrl || `${this.origin}/api/tools/${toolId}/access`;
+            const apiUrl = tool.apiUrl || tool.api_url || tool.accessUrl || null;
+
+            console.log('[TEXA Popup] Opening tool:', toolId, {
+                targetUrl: tool.targetUrl,
+                apiUrl: apiUrl,
+                hasCookies: !!(tool.cookiesData || tool.cookies_data)
+            });
 
             const message = {
                 type: 'TEXA_OPEN_TOOL',
                 origin: this.origin,
                 toolId: toolId,
                 targetUrl: tool.targetUrl,
+                cookiesData: tool.cookiesData || tool.cookies_data || null,
                 apiUrl: apiUrl,
-                authHeader: `Bearer ${this.idToken}`
+                authHeader: `Bearer ${this.idToken}`,
+                idToken: this.idToken
             };
 
             const response = await chrome.runtime.sendMessage(message);

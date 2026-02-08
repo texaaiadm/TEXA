@@ -817,6 +817,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 .then(() => sendResponse({ status: 'success' }))
                 .catch(e => sendResponse({ status: 'error', msg: e.message }));
             return true;
+
+        case 'TEXA_LOGIN_SUCCESS':
+            console.log('🔔 TEXA: Login success notification');
+            chrome.storage.local.get(['texa_user'], (result) => {
+                const user = result.texa_user;
+                if (user) {
+                    console.log('👤 TEXA: User synced:', user.email);
+                }
+            });
+            sendResponse({ success: true });
+            return true;
+
+        case 'TEXA_GET_USER':
+            chrome.storage.local.get(['texa_user', 'texa_token', 'texa_origin'], (result) => {
+                sendResponse({
+                    success: true,
+                    user: result.texa_user || null,
+                    token: result.texa_token || null,
+                    origin: result.texa_origin || null
+                });
+            });
+            return true;
+
+        case 'TEXA_CHECK_SUBSCRIPTION':
+            chrome.storage.local.get(['texa_user'], (result) => {
+                const user = result.texa_user;
+                if (user && user.subscriptionEnd) {
+                    const endDate = new Date(user.subscriptionEnd);
+                    const isActive = endDate > new Date();
+                    sendResponse({ success: true, isActive, subscriptionEnd: user.subscriptionEnd });
+                } else {
+                    sendResponse({ success: false, isActive: false });
+                }
+            });
+            return true;
+
+        case 'TEXA_FORCE_SYNC':
+            console.log('🔄 TEXA: Force sync requested');
+            sendResponse({ success: true, message: 'Sync triggered' });
+            return true;
+
+        default:
+            sendResponse({ success: false, error: 'Unknown message type: ' + type });
+            return true;
     }
 });
 
@@ -1138,98 +1182,6 @@ chrome.webNavigation.onCompleted.addListener((details) => {
         setTimeout(() => extractTokenFromTab(details.tabId), 2000);
     }
 }, { url: [{ hostContains: 'labs.google' }] });
-
-// =============================================
-// MESSAGE LISTENER - Handle all incoming messages
-// =============================================
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('📨 TEXA Background: Received message:', message.type);
-
-    // Handle TEXA_OPEN_TOOL - Open tool with cookie injection
-    if (message.type === 'TEXA_OPEN_TOOL') {
-        console.log('🔧 TEXA: Opening tool:', message.toolId, message.targetUrl);
-
-        openToolWithCookies(
-            message.targetUrl,
-            message.toolId,
-            message.cookiesData,
-            message.apiUrl,
-            message.idToken
-        ).then(result => {
-            console.log('✅ TEXA: Tool opened:', result);
-            sendResponse(result);
-        }).catch(err => {
-            console.error('❌ TEXA: Error opening tool:', err);
-            sendResponse({ success: false, error: err.message });
-        });
-
-        return true; // Will respond asynchronously
-    }
-
-    // Handle TEXA_SCRAPE_TOKEN - Silent token scrape
-    if (message.type === 'TEXA_SCRAPE_TOKEN') {
-        scrapeToken().then(result => {
-            sendResponse(result);
-        }).catch(err => {
-            sendResponse({ success: false, error: err.message });
-        });
-        return true;
-    }
-
-    // Handle TEXA_LOGIN_SUCCESS - Show notification
-    if (message.type === 'TEXA_LOGIN_SUCCESS') {
-        console.log('🔔 TEXA: Login success notification');
-        // Refresh user data from storage
-        chrome.storage.local.get(['texa_user'], (result) => {
-            const user = result.texa_user;
-            if (user) {
-                console.log('👤 TEXA: User synced:', user.email);
-            }
-        });
-        sendResponse({ success: true });
-        return true;
-    }
-
-    // Handle TEXA_GET_USER - Get current user from storage
-    if (message.type === 'TEXA_GET_USER') {
-        chrome.storage.local.get(['texa_user', 'texa_token', 'texa_origin'], (result) => {
-            sendResponse({
-                success: true,
-                user: result.texa_user || null,
-                token: result.texa_token || null,
-                origin: result.texa_origin || null
-            });
-        });
-        return true;
-    }
-
-    // Handle TEXA_CHECK_SUBSCRIPTION - Check if user has active subscription
-    if (message.type === 'TEXA_CHECK_SUBSCRIPTION') {
-        chrome.storage.local.get(['texa_user'], (result) => {
-            const user = result.texa_user;
-            if (user && user.subscriptionEnd) {
-                const endDate = new Date(user.subscriptionEnd);
-                const isActive = endDate > new Date();
-                sendResponse({ success: true, isActive, subscriptionEnd: user.subscriptionEnd });
-            } else {
-                sendResponse({ success: false, isActive: false });
-            }
-        });
-        return true;
-    }
-
-    // Handle TEXA_FORCE_SYNC - Force refresh user data from web app
-    if (message.type === 'TEXA_FORCE_SYNC') {
-        console.log('🔄 TEXA: Force sync requested');
-        sendResponse({ success: true, message: 'Sync triggered' });
-        return true;
-    }
-
-    // Default response for unknown message types
-    sendResponse({ success: false, error: 'Unknown message type' });
-    return true;
-});
 
 console.log('🚀 TEXA-Ai Manager - Background Loaded (SILENT MODE with Browser Google Session)');
 console.log('📡 TEXA: Message listener active - ready for OPEN_TOOL, LOGIN_SYNC, etc.');

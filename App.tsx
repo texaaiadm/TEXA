@@ -28,9 +28,10 @@ const DEFAULT_THEME_SETTINGS = getDefaultThemeSettings();
 // Inner component that has access to useLocation
 const AppContent: React.FC<{
   user: TexaUser | null;
+  authLoading: boolean;
   onLogin: (userData: TexaUser) => void;
   onLogout: () => void;
-}> = ({ user, onLogin, onLogout }) => {
+}> = ({ user, authLoading, onLogin, onLogout }) => {
   const location = useLocation();
   const { isAnyPopupOpen } = usePopup();
   const [dockItems, setDockItems] = React.useState<DockItemData[]>([]);
@@ -260,7 +261,7 @@ const AppContent: React.FC<{
             </div>
           } />
 
-          <Route path="/tool/:toolId" element={<ToolIframePage user={user} />} />
+          <Route path="/tool/:toolId" element={<ToolIframePage user={user} authLoading={authLoading} />} />
 
           <Route path="/payment" element={<PaymentPage />} />
           <Route path="/payment-success" element={<PaymentSuccessPage />} />
@@ -441,7 +442,7 @@ const App: React.FC = () => {
       <ErrorBoundary>
         <Router>
           <PopupProvider>
-            <AppContent user={user} onLogin={handleLogin} onLogout={handleLogout} />
+            <AppContent user={user} authLoading={loading} onLogin={handleLogin} onLogout={handleLogout} />
           </PopupProvider>
         </Router>
       </ErrorBoundary>

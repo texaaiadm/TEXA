@@ -10,30 +10,33 @@ const hasActiveSubscription = (user: TexaUser | null) => {
   return new Date(user.subscriptionEnd) > new Date();
 };
 
-const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
+interface Props {
+  user: TexaUser | null;
+  authLoading?: boolean;
+}
+
+const ToolIframePage: React.FC<Props> = ({ user, authLoading = false }) => {
   const { toolId } = useParams();
   const [tool, setTool] = useState<CatalogItem | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
-  const [ready, setReady] = useState(false);       // Both access + tool fetched
-  const [denied, setDenied] = useState(false);      // Access denied
+  const [ready, setReady] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [iframeLoaded, setIframeLoaded] = useState(false);
 
   const hasSubscription = useMemo(() => hasActiveSubscription(user), [user]);
 
-  // Single effect: fetch tool AND check access in PARALLEL
+  // Fetch tool + check access in PARALLEL — but only after auth resolves
   useEffect(() => {
+    // Don't run until auth is settled AND we know who the user is
+    if (authLoading) return;
+    if (!user || !toolId) return;
+
     let stopped = false;
     setReady(false);
-    setDenied(false);
+    setAccessDenied(false);
     setIframeLoaded(false);
 
     const init = async () => {
-      if (!user || !toolId) {
-        setDenied(true);
-        return;
-      }
-
-      // Run tool fetch and access check concurrently
       const [toolResult, accessResult] = await Promise.all([
         getCatalogItem(toolId).catch(() => null),
         hasSubscription
@@ -44,7 +47,7 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
       if (stopped) return;
 
       if (!accessResult) {
-        setDenied(true);
+        setAccessDenied(true);
         return;
       }
 
@@ -55,32 +58,25 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
 
     init();
     return () => { stopped = true; };
-  }, [user, toolId, hasSubscription]);
+  }, [user, toolId, hasSubscription, authLoading]);
 
-  if (!user) return <Navigate to="/login" replace />;
-  if (denied) return <Navigate to="/" replace />;
+  // ── Guard renders ──
 
-  // Compact loading state
-  if (!ready) {
-    return (
-      <div className="w-full">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/5 animate-pulse" />
-            <div className="w-32 h-5 rounded-lg bg-white/5 animate-pulse" />
-          </div>
-          <div className="w-24 h-8 rounded-xl bg-white/5 animate-pulse" />
-        </div>
-        <div className="w-full h-[86vh] rounded-2xl bg-white/[0.02] border border-white/10 flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-slate-500 text-sm">Memuat tool...</p>
-          </div>
-        </div>
-      </div>
-    );
+  // Still loading auth — show skeleton
+  if (authLoading || (!user && !authLoading === false)) {
+    return <LoadingSkeleton />;
   }
 
+  // Auth resolved but no user — redirect to login
+  if (!user) return <Navigate to="/login" replace />;
+
+  // Access denied after check
+  if (accessDenied) return <Navigate to="/" replace />;
+
+  // Still fetching tool + access check
+  if (!ready) return <LoadingSkeleton />;
+
+  // Tool not found in DB
   if (!tool) {
     return (
       <div className="max-w-3xl mx-auto py-10">
@@ -95,6 +91,7 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
     );
   }
 
+  // Tool doesn't support iframe
   const iframeOk = tool.openMode === 'iframe' && isUrlIframeAllowed(tool.targetUrl);
   if (!iframeOk) return <Navigate to="/" replace />;
 
@@ -137,5 +134,24 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
     </div>
   );
 };
+
+// Skeleton loading component
+const LoadingSkeleton: React.FC = () => (
+  <div className="w-full">
+    <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-white/5 animate-pulse" />
+        <div className="w-32 h-5 rounded-lg bg-white/5 animate-pulse" />
+      </div>
+      <div className="w-24 h-8 rounded-xl bg-white/5 animate-pulse" />
+    </div>
+    <div className="w-full h-[86vh] rounded-2xl bg-white/[0.02] border border-white/10 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-slate-500 text-sm">Memuat tool...</p>
+      </div>
+    </div>
+  </div>
+);
 
 export default ToolIframePage;

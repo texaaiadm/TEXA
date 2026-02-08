@@ -263,6 +263,7 @@ const toLocalCatalogItem = (tool: any): CatalogItem => ({
     category: tool.category || '',
     imageUrl: tool.image_url || '',
     targetUrl: tool.tool_url || '',
+    openMode: tool.open_mode || 'new_tab',
     cookiesData: tool.cookies_data ?? tool.cookiesData ?? '',
     apiUrl: tool.api_url ?? tool.apiUrl ?? '',
     status: tool.is_active ? 'active' : 'inactive',
@@ -285,6 +286,7 @@ const toSupabaseTool = (item: Partial<CatalogItem>): any => {
     if (item.category !== undefined) converted.category = item.category;
     if (item.imageUrl !== undefined) converted.image_url = item.imageUrl;
     if (item.targetUrl !== undefined) converted.tool_url = item.targetUrl;
+    if (item.openMode !== undefined) converted.open_mode = item.openMode;
     if (item.cookiesData !== undefined) converted.cookies_data = item.cookiesData;
     if (item.apiUrl !== undefined) converted.api_url = item.apiUrl;
     if (item.status !== undefined) converted.is_active = item.status === 'active';
@@ -302,6 +304,7 @@ const mapToolToCatalogItem = (tool: any): CatalogItem => ({
     category: tool.category || '',
     imageUrl: tool.image_url || tool.imageUrl || '',
     targetUrl: tool.tool_url || tool.targetUrl || '',
+    openMode: tool.open_mode || tool.openMode || 'new_tab',
     cookiesData: tool.cookies_data ?? tool.cookiesData ?? '',
     apiUrl: tool.api_url ?? tool.apiUrl ?? '',
     status: tool.is_active ? 'active' : (tool.status || 'active'),
@@ -505,6 +508,7 @@ export const addCatalogItem = async (
                 category: item.category,
                 imageUrl: item.imageUrl,
                 targetUrl: item.targetUrl,
+                openMode: item.openMode || 'new_tab',
                 cookiesData: item.cookiesData,
                 apiUrl: item.apiUrl,
                 status: item.status,
@@ -548,6 +552,7 @@ export const updateCatalogItem = async (
                 category: updates.category,
                 imageUrl: updates.imageUrl,
                 targetUrl: updates.targetUrl,
+                openMode: updates.openMode,
                 cookiesData: updates.cookiesData,
                 apiUrl: updates.apiUrl,
                 status: updates.status,

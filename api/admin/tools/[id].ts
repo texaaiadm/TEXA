@@ -78,6 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (body.price7Days !== undefined) updateData.price_7_days = Number(body.price7Days) || 0;
         if (body.price14Days !== undefined) updateData.price_14_days = Number(body.price14Days) || 0;
         if (body.price30Days !== undefined) updateData.price_30_days = Number(body.price30Days) || 0;
+        if (body.openMode !== undefined) updateData.open_mode = body.openMode;
 
         try {
             const { error } = await supabase

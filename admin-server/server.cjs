@@ -804,6 +804,87 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ==================== Settings API (for iframe domains, theme, etc.) ====================
+
+  // GET setting by key
+  if (req.method === 'GET' && url.pathname === '/api/admin/settings') {
+    const key = url.searchParams.get('key');
+    if (!key) {
+      return json(res, 400, { success: false, message: 'Key parameter required' });
+    }
+
+    // Public keys don't require auth
+    const PUBLIC_KEYS = ['iframe_allowed_hosts'];
+    if (!PUBLIC_KEYS.includes(key)) {
+      const guard = await requireAdminOrDev(req);
+      if (!guard.ok) return json(res, guard.status, { success: false, message: guard.message });
+    }
+
+    try {
+      const settingsResp = await supabaseFetch(`/rest/v1/settings?key=eq.${encodeURIComponent(key)}&select=*&limit=1`);
+      if (settingsResp.ok) {
+        const rows = await settingsResp.json();
+        const data = rows[0] || null;
+        console.log(`📋 [settings] GET key="${key}":`, data ? 'found' : 'not found');
+        return json(res, 200, { success: true, data });
+      } else {
+        console.error('❌ [settings] GET error:', await settingsResp.text());
+        return json(res, 200, { success: true, data: null });
+      }
+    } catch (e) {
+      console.error('❌ [settings] GET error:', e);
+      return json(res, 200, { success: true, data: null });
+    }
+  }
+
+  // PUT save/update setting
+  if (req.method === 'PUT' && url.pathname === '/api/admin/settings') {
+    const guard = await requireAdminOrDev(req);
+    if (!guard.ok) return json(res, guard.status, { success: false, message: guard.message });
+
+    try {
+      const body = await readBody(req);
+      const { key, value } = body;
+
+      if (!key) {
+        return json(res, 400, { success: false, message: 'Key is required' });
+      }
+
+      const now = new Date().toISOString();
+
+      // Check if setting exists
+      const existResp = await supabaseFetch(`/rest/v1/settings?key=eq.${encodeURIComponent(key)}&select=key&limit=1`);
+      const existing = existResp.ok ? await existResp.json() : [];
+
+      let saveResp;
+      if (existing.length > 0) {
+        // Update
+        saveResp = await supabaseFetch(`/rest/v1/settings?key=eq.${encodeURIComponent(key)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ value: value || {}, updated_at: now })
+        });
+      } else {
+        // Insert
+        saveResp = await supabaseFetch('/rest/v1/settings', {
+          method: 'POST',
+          body: JSON.stringify({ key, value: value || {}, updated_at: now })
+        });
+      }
+
+      if (saveResp.ok) {
+        console.log('✅ [settings] Saved:', key);
+        return json(res, 200, { success: true, message: 'Setting saved' });
+      } else {
+        const errText = await saveResp.text();
+        console.error('❌ [settings] Save error:', errText);
+        return json(res, 500, { success: false, message: 'Failed to save setting' });
+      }
+    } catch (e) {
+      console.error('❌ [settings] PUT error:', e);
+      return json(res, 500, { success: false, message: 'Server error' });
+    }
+  }
+
   try {
     // TokoPay API Routes
     if (req.method === 'POST' && (url.pathname === '/api/tokopay/create-order' || url.pathname === '/tokopay/create-order')) {
@@ -1281,7 +1362,7 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
       if (!guard.ok) return json(res, guard.status, { success: false, message: guard.message });
 
       const body = await readBody(req);
-      const { name, description, category, imageUrl, targetUrl, status, priceMonthly, cookiesData, apiUrl } = body;
+      const { name, description, category, imageUrl, targetUrl, openMode, status, priceMonthly, cookiesData, apiUrl } = body;
 
       if (!name) {
         return json(res, 400, { success: false, message: 'Nama tool wajib diisi' });
@@ -1304,6 +1385,7 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
           category: category || '',
           image_url: imageUrl || '',
           tool_url: targetUrl || '',
+          open_mode: openMode || 'new_tab',
           cookies_data: cookiesData || null,
           api_url: apiUrl || null,
           is_active: status === 'active',
@@ -1365,6 +1447,7 @@ ALTER TABLE tools ADD COLUMN IF NOT EXISTS price_30_days INTEGER DEFAULT 0;`,
       if (body.price7Days !== undefined) updateData.price_7_days = Number(body.price7Days) || 0;
       if (body.price14Days !== undefined) updateData.price_14_days = Number(body.price14Days) || 0;
       if (body.price30Days !== undefined) updateData.price_30_days = Number(body.price30Days) || 0;
+      if (body.openMode !== undefined) updateData.open_mode = body.openMode;
 
       try {
         const response = await supabaseFetch(`/rest/v1/tools?id=eq.${toolId}`, {

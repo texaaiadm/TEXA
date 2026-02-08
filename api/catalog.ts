@@ -68,6 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             category: tool.category || '',
             imageUrl: tool.image_url || '',
             targetUrl: tool.tool_url || '',  // Map tool_url to targetUrl
+            openMode: tool.open_mode || 'new_tab',  // Map open_mode to openMode
             apiUrl: tool.api_url || '',
             cookiesData: tool.cookies_data || null,
             status: tool.is_active ? 'active' : 'inactive',

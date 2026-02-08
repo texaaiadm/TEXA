@@ -40,10 +40,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        // Fetch only active tools with limited fields for public access
+        // Fetch active tools with all fields needed by the frontend
         const { data, error } = await supabase
             .from('tools')
-            .select('id, name, category, image_url, is_active')
+            .select('id, name, description, category, image_url, tool_url, open_mode, api_url, cookies_data, is_active, price_monthly, price_7_days, price_14_days, price_30_days, sort_order')
             .eq('is_active', true)
             .order('sort_order', { ascending: true });
 

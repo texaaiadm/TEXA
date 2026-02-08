@@ -161,32 +161,12 @@ export const signIn = async (email: string, password: string): Promise<{ user: T
 // Sign in with Google OAuth using popup
 export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error: string | null }> => {
     try {
-        // IMPORTANT: Open popup FIRST (synchronously from user click) to avoid
-        // browser popup blockers. Browsers block window.open() if called after an await.
-        const width = 500;
-        const height = 600;
-        const left = window.screenX + (window.outerWidth - width) / 2;
-        const top = window.screenY + (window.outerHeight - height) / 2;
-
-        // Open blank popup immediately — this is synchronous from the click handler
-        const popup = window.open(
-            'about:blank',
-            'Google Sign In',
-            `width=${width},height=${height},left=${left},top=${top},popup=true,toolbar=no,menubar=no,location=no,status=no`
-        );
-
-        if (!popup) {
-            return { user: null, error: 'Popup diblokir browser. Izinkan popup untuk situs ini.' };
-        }
-
-        // Show a loading message in the popup while we get the OAuth URL
-        popup.document.write('<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#1a1a2e;color:white;font-family:sans-serif"><div style="text-align:center"><p style="font-size:18px">Menghubungkan ke Google...</p><p style="font-size:14px;opacity:0.6">Mohon tunggu</p></div></body></html>');
-
         // Build the redirect URL — Supabase will redirect here after Google auth
+        // The popup will land on this URL with hash fragments containing tokens
         const redirectUrl = window.location.origin;
         console.log('🔐 TEXA Auth: Starting Google OAuth, redirectTo:', redirectUrl);
 
-        // Get OAuth URL without redirecting (popup is already open)
+        // Get OAuth URL without redirecting
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
@@ -197,19 +177,30 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
 
         if (error) {
             console.error('❌ TEXA Auth: OAuth URL error:', error.message);
-            popup.close();
             return { user: null, error: error.message };
         }
 
         if (!data.url) {
-            popup.close();
             return { user: null, error: 'Failed to get OAuth URL' };
         }
 
-        console.log('🔐 TEXA Auth: Navigating popup to Google OAuth');
+        console.log('🔐 TEXA Auth: Opening popup for Google OAuth');
 
-        // Navigate the already-open popup to the OAuth URL
-        popup.location.href = data.url;
+        // Open popup window for Google OAuth
+        const width = 500;
+        const height = 600;
+        const left = window.screenX + (window.outerWidth - width) / 2;
+        const top = window.screenY + (window.outerHeight - height) / 2;
+
+        const popup = window.open(
+            data.url,
+            'Google Sign In',
+            `width=${width},height=${height},left=${left},top=${top},popup=true,toolbar=no,menubar=no,location=no,status=no`
+        );
+
+        if (!popup) {
+            return { user: null, error: 'Popup blocked. Please allow popups for this site.' };
+        }
 
         return new Promise((resolve) => {
             let resolved = false;

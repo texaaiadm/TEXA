@@ -323,8 +323,30 @@ const mapToolToCatalogItem = (tool: any): CatalogItem => ({
     individualDiscount: tool.individual_discount ?? tool.individualDiscount ?? null
 });
 
+// ── In-memory cache + deduplication for getCatalog ──
+let catalogCache: { items: CatalogItem[]; timestamp: number } | null = null;
+let catalogFetchPromise: Promise<CatalogItem[]> | null = null;
+const CATALOG_CACHE_TTL = 30_000; // 30 seconds
+
 // Get all catalog items - Multi-layer fallback for maximum reliability
 export const getCatalog = async (): Promise<CatalogItem[]> => {
+    // Return cached data if fresh (within TTL)
+    if (catalogCache && Date.now() - catalogCache.timestamp < CATALOG_CACHE_TTL) {
+        return catalogCache.items;
+    }
+
+    // Deduplicate: if a fetch is already in-flight, return the same promise
+    if (catalogFetchPromise) return catalogFetchPromise;
+
+    catalogFetchPromise = getCatalogInternal().finally(() => {
+        catalogFetchPromise = null;
+    });
+
+    return catalogFetchPromise;
+};
+
+// Internal implementation — only called once per cache miss
+const getCatalogInternal = async (): Promise<CatalogItem[]> => {
     const apiBaseUrl = getApiBaseUrl();
     const isLocalDev = typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -352,7 +374,9 @@ export const getCatalog = async (): Promise<CatalogItem[]> => {
 
             if (toolsArray && toolsArray.length > 0) {
                 console.log(`✅ Loaded ${toolsArray.length} tools via ${isLocalDev ? 'Admin' : 'Public'} API`);
-                return toolsArray.map(mapToolToCatalogItem);
+                const items = toolsArray.map(mapToolToCatalogItem);
+                catalogCache = { items, timestamp: Date.now() };
+                return items;
             }
         }
     } catch (e) {
@@ -374,7 +398,9 @@ export const getCatalog = async (): Promise<CatalogItem[]> => {
                 const result = await response.json();
                 if (result.success && Array.isArray(result.data) && result.data.length > 0) {
                     console.log(`✅ Loaded ${result.data.length} tools via Admin API fallback`);
-                    return result.data.map(mapToolToCatalogItem);
+                    const items = result.data.map(mapToolToCatalogItem);
+                    catalogCache = { items, timestamp: Date.now() };
+                    return items;
                 }
             }
         } catch (e) {
@@ -392,7 +418,9 @@ export const getCatalog = async (): Promise<CatalogItem[]> => {
 
         if (!error && data && data.length > 0) {
             console.log(`✅ Loaded ${data.length} tools via direct Supabase`);
-            return data.map(toLocalCatalogItem);
+            const items = data.map(toLocalCatalogItem);
+            catalogCache = { items, timestamp: Date.now() };
+            return items;
         }
         if (error) {
             console.warn('[getCatalog] Supabase client error:', error.message);
@@ -423,7 +451,9 @@ export const getCatalog = async (): Promise<CatalogItem[]> => {
                 const tools = await restResponse.json();
                 if (Array.isArray(tools) && tools.length > 0) {
                     console.log(`✅ Loaded ${tools.length} tools via Supabase REST API`);
-                    return tools.map(toLocalCatalogItem);
+                    const items = tools.map(toLocalCatalogItem);
+                    catalogCache = { items, timestamp: Date.now() };
+                    return items;
                 }
             }
         }

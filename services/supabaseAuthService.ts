@@ -161,22 +161,30 @@ export const signIn = async (email: string, password: string): Promise<{ user: T
 // Sign in with Google OAuth using popup
 export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error: string | null }> => {
     try {
+        // Build the redirect URL — Supabase will redirect here after Google auth
+        // The popup will land on this URL with hash fragments containing tokens
+        const redirectUrl = window.location.origin;
+        console.log('🔐 TEXA Auth: Starting Google OAuth, redirectTo:', redirectUrl);
+
         // Get OAuth URL without redirecting
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo: window.location.origin,
-                skipBrowserRedirect: true  // This prevents automatic redirect
+                redirectTo: redirectUrl,
+                skipBrowserRedirect: true  // Don't redirect main window
             }
         });
 
         if (error) {
+            console.error('❌ TEXA Auth: OAuth URL error:', error.message);
             return { user: null, error: error.message };
         }
 
         if (!data.url) {
             return { user: null, error: 'Failed to get OAuth URL' };
         }
+
+        console.log('🔐 TEXA Auth: Opening popup for Google OAuth');
 
         // Open popup window for Google OAuth
         const width = 500;
@@ -194,56 +202,48 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
             return { user: null, error: 'Popup blocked. Please allow popups for this site.' };
         }
 
-        // Use onAuthStateChange to detect when login is complete
-        // This bypasses COOP restrictions that block popup.closed checks
         return new Promise((resolve) => {
             let resolved = false;
             let checkPopupInterval: ReturnType<typeof setInterval> | null = null;
 
-            // Helper function to close popup and focus main window
-            const closePopupAndFocus = () => {
-                // Try multiple times to close popup (some browsers need delay)
-                const tryClose = () => {
-                    try {
-                        if (popup && !popup.closed) {
-                            popup.close();
-                        }
-                    } catch (e) { /* ignore COOP errors */ }
-                };
-
-                tryClose();
-                setTimeout(tryClose, 100);
-                setTimeout(tryClose, 500);
-
-                // Focus main window
-                try {
-                    window.focus();
-                } catch (e) { /* ignore */ }
+            const cleanup = () => {
+                if (checkPopupInterval) {
+                    clearInterval(checkPopupInterval);
+                    checkPopupInterval = null;
+                }
             };
 
-            // Listen for auth state change
-            const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            // Helper function to close popup and focus main window
+            const closePopupAndFocus = () => {
+                const tryClose = () => {
+                    try {
+                        if (popup && !popup.closed) popup.close();
+                    } catch (e) { /* ignore COOP errors */ }
+                };
+                tryClose();
+                setTimeout(tryClose, 200);
+                setTimeout(tryClose, 800);
+                try { window.focus(); } catch (e) { /* ignore */ }
+            };
+
+            const finishLogin = async (session: Session) => {
                 if (resolved) return;
+                resolved = true;
+                cleanup();
+                closePopupAndFocus();
 
-                if (event === 'SIGNED_IN' && session?.user) {
-                    resolved = true;
-                    subscription.unsubscribe();
-                    if (checkPopupInterval) clearInterval(checkPopupInterval);
+                console.log('✅ TEXA Auth: Google login success:', session.user.email);
 
-                    // Close popup and focus main window
-                    closePopupAndFocus();
+                const texaUser = await mapSupabaseUser(session.user);
 
-                    const texaUser = await mapSupabaseUser(session.user);
-
-                    // Upsert user profile - PRESERVE existing role from database!
-                    // First check if user exists and get their current role
+                // Upsert user profile — PRESERVE existing role from database!
+                try {
                     const { data: existingUser } = await supabase
                         .from('users')
                         .select('role')
                         .eq('id', session.user.id)
                         .single();
 
-                    // Determine role: keep existing role, or use checkIfAdmin for new users
                     const roleToUse = existingUser?.role ||
                         (checkIfAdmin(session.user.email || '') ? 'ADMIN' : 'MEMBER');
 
@@ -255,51 +255,121 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                         role: roleToUse,
                         last_login: new Date().toISOString()
                     }, { onConflict: 'id' });
+                } catch (e) {
+                    console.warn('⚠️ TEXA Auth: Failed to upsert user profile:', e);
+                }
 
-                    resolve({ user: texaUser, error: null });
+                resolve({ user: texaUser, error: null });
+            };
+
+            // Method 1: Listen for auth state change (primary method)
+            const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+                console.log('🔐 TEXA Auth popup listener:', event);
+                if (resolved) return;
+
+                if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+                    subscription.unsubscribe();
+                    await finishLogin(session);
                 }
             });
 
-            // Fallback: Check if popup is closed (user cancelled)
-            checkPopupInterval = setInterval(() => {
+            // Method 2: Poll popup URL for hash fragments (backup for COOP-blocked scenarios)
+            checkPopupInterval = setInterval(async () => {
                 try {
-                    if (popup.closed && !resolved) {
-                        resolved = true;
-                        subscription.unsubscribe();
-                        clearInterval(checkPopupInterval!);
-                        window.focus(); // Focus main window if user cancelled
-                        resolve({ user: null, error: 'Login dibatalkan' });
+                    if (resolved) {
+                        cleanup();
+                        return;
+                    }
+
+                    // Check if popup was closed by user (cancelled)
+                    if (popup.closed) {
+                        if (!resolved) {
+                            resolved = true;
+                            subscription.unsubscribe();
+                            cleanup();
+                            window.focus();
+                            resolve({ user: null, error: 'Login dibatalkan' });
+                        }
+                        return;
+                    }
+
+                    // Try to read popup URL for hash fragments with tokens
+                    // This works when popup redirects back to our origin
+                    try {
+                        const popupUrl = popup.location.href;
+                        if (popupUrl && popupUrl.includes('access_token=')) {
+                            console.log('🔐 TEXA Auth: Found tokens in popup URL');
+                            // Extract tokens and set session
+                            const hashParams = new URLSearchParams(
+                                popupUrl.split('#')[1] || ''
+                            );
+                            const access_token = hashParams.get('access_token');
+                            const refresh_token = hashParams.get('refresh_token');
+
+                            if (access_token && refresh_token) {
+                                subscription.unsubscribe();
+                                cleanup();
+                                closePopupAndFocus();
+
+                                // Set session from tokens
+                                const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+                                    access_token,
+                                    refresh_token
+                                });
+
+                                if (sessionError || !sessionData.session) {
+                                    if (!resolved) {
+                                        resolved = true;
+                                        resolve({ user: null, error: sessionError?.message || 'Failed to set session' });
+                                    }
+                                    return;
+                                }
+
+                                await finishLogin(sessionData.session);
+                            }
+                        }
+                    } catch (e) {
+                        // Cross-origin — can't read popup URL, rely on auth state change
                     }
                 } catch (e) {
-                    // COOP may block this - just continue, auth state change will handle it
+                    // COOP may block popup.closed check, just continue
                 }
-            }, 1000);
+            }, 500);
 
-            // Timeout after 5 minutes
+            // Timeout after 2 minutes (reduced from 5 min — if it takes that long, something is wrong)
             setTimeout(() => {
                 if (!resolved) {
                     resolved = true;
                     subscription.unsubscribe();
-                    if (checkPopupInterval) clearInterval(checkPopupInterval);
+                    cleanup();
                     closePopupAndFocus();
                     resolve({ user: null, error: 'Login timeout. Silakan coba lagi.' });
                 }
-            }, 300000);
+            }, 120000);
         });
     } catch (error: any) {
+        console.error('❌ TEXA Auth: Google sign in error:', error);
         return { user: null, error: error.message || 'Google sign in failed' };
     }
 };
 
-// Sign out
+// Sign out — use global scope to clear all sessions (tabs, popup, etc.)
 export const signOut = async (): Promise<{ error: string | null }> => {
     try {
-        const { error } = await supabase.auth.signOut();
+        console.log('🔐 TEXA Auth: Signing out (global scope)...');
+        const { error } = await supabase.auth.signOut({ scope: 'global' });
         if (error) {
+            console.error('❌ TEXA Auth: Sign out error:', error.message);
+            // Still try local signout as fallback
+            await supabase.auth.signOut({ scope: 'local' }).catch(() => { });
             return { error: error.message };
         }
+        console.log('✅ TEXA Auth: Signed out successfully');
         return { error: null };
     } catch (error: any) {
+        console.error('❌ TEXA Auth: Sign out exception:', error);
+        // Fallback: force local signout
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => { });
         return { error: error.message || 'Sign out failed' };
     }
 };
@@ -327,68 +397,107 @@ export const getCurrentUser = async (): Promise<TexaUser | null> => {
 };
 
 // Listen to auth state changes
+// Fixed: removed hasCalledBack race condition, use lastUserId for de-duplication
 export const onAuthChange = (callback: AuthCallback): (() => void) => {
-    let hasCalledBack = false;
+    let lastUserId: string | null = null;
+    let initialSessionHandled = false;
 
-    // Get initial session from localStorage (instant, no network request)
-    // This is the key fix - getSession() reads from localStorage, getUser() makes a network call
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-        if (session?.user && !hasCalledBack) {
-            hasCalledBack = true;
-            const user = await mapSupabaseUser(session.user);
-            callback(user);
-        }
-    }).catch((error) => {
-        // Handle AbortError gracefully - don't treat as fatal
-        if (error?.name === 'AbortError') {
-            console.log('Session fetch was aborted, will retry via auth state change');
-        } else {
-            console.error('Error getting initial session:', error);
-        }
-    });
-
-    // Subscribe to auth changes
+    // Subscribe to auth changes — this is the SINGLE source of truth
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
         async (event: AuthChangeEvent, session: Session | null) => {
-            console.log('Auth state change:', event, session?.user?.email);
+            console.log('🔐 TEXA Auth state change:', event, session?.user?.email || 'no user');
 
-            // Handle all session-related events including page reload
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
-                if (session?.user) {
-                    hasCalledBack = true;
-                    const user = await mapSupabaseUser(session.user);
-
-                    // Ensure user profile exists (with error handling)
-                    try {
-                        await supabase.from('users').upsert({
-                            id: session.user.id,
-                            email: session.user.email,
-                            name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0],
-                            photo_url: session.user.user_metadata?.avatar_url,
-                            last_login: new Date().toISOString()
-                        }, { onConflict: 'id' });
-                    } catch (error) {
-                        // Don't fail auth if profile update fails
-                        console.warn('Failed to update user profile:', error);
+            try {
+                if (event === 'INITIAL_SESSION') {
+                    initialSessionHandled = true;
+                    if (session?.user) {
+                        lastUserId = session.user.id;
+                        const user = await mapSupabaseUser(session.user);
+                        // Upsert profile in background (don't block callback)
+                        upsertUserProfile(session.user).catch(() => { });
+                        callback(user);
+                    } else {
+                        // No stored session — user is not logged in
+                        lastUserId = null;
+                        callback(null);
                     }
+                } else if (event === 'SIGNED_IN') {
+                    if (session?.user) {
+                        // Only fire callback if user actually changed (avoid duplicate fires)
+                        const isNewUser = lastUserId !== session.user.id;
+                        lastUserId = session.user.id;
 
-                    callback(user);
-                } else if (event === 'INITIAL_SESSION' && !hasCalledBack) {
-                    // INITIAL_SESSION with no session means no stored session
-                    hasCalledBack = true;
+                        const user = await mapSupabaseUser(session.user);
+                        upsertUserProfile(session.user).catch(() => { });
+                        callback(user);
+
+                        if (isNewUser) {
+                            console.log('✅ TEXA Auth: New login:', session.user.email);
+                        }
+                    }
+                } else if (event === 'TOKEN_REFRESHED') {
+                    if (session?.user) {
+                        lastUserId = session.user.id;
+                        const user = await mapSupabaseUser(session.user);
+                        callback(user);
+                        console.log('🔄 TEXA Auth: Token refreshed for:', session.user.email);
+                    }
+                } else if (event === 'SIGNED_OUT') {
+                    console.log('🔐 TEXA Auth: User signed out');
+                    lastUserId = null;
                     callback(null);
                 }
-            } else if (event === 'SIGNED_OUT') {
-                hasCalledBack = true;
-                callback(null);
+            } catch (error) {
+                console.error('❌ TEXA Auth state change error:', error);
+                // Don't leave app in broken state — still fire callback
+                if (event === 'SIGNED_OUT' || !session?.user) {
+                    callback(null);
+                }
             }
         }
     );
 
+    // Fallback: if INITIAL_SESSION doesn't fire within 3s, try getSession
+    const fallbackTimeout = setTimeout(async () => {
+        if (!initialSessionHandled) {
+            console.warn('⚠️ TEXA Auth: INITIAL_SESSION not received, using getSession fallback');
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user) {
+                    lastUserId = session.user.id;
+                    const user = await mapSupabaseUser(session.user);
+                    callback(user);
+                } else {
+                    callback(null);
+                }
+            } catch (e) {
+                console.error('❌ TEXA Auth fallback getSession error:', e);
+                callback(null);
+            }
+            initialSessionHandled = true;
+        }
+    }, 3000);
+
     return () => {
+        clearTimeout(fallbackTimeout);
         subscription.unsubscribe();
     };
 };
+
+// Helper: upsert user profile to database (non-blocking)
+async function upsertUserProfile(user: User): Promise<void> {
+    try {
+        await supabase.from('users').upsert({
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.email?.split('@')[0],
+            photo_url: user.user_metadata?.avatar_url,
+            last_login: new Date().toISOString()
+        }, { onConflict: 'id' });
+    } catch (error) {
+        console.warn('⚠️ TEXA Auth: Failed to upsert user profile:', error);
+    }
+}
 
 // Update user profile
 export const updateUserProfile = async (userId: string, updates: Partial<TexaUser>): Promise<boolean> => {

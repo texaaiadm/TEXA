@@ -287,45 +287,44 @@ const App: React.FC = () => {
   const [user, setUser] = useState<TexaUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Listen to Supabase Auth state changes with error handling
+  // Listen to Supabase Auth state changes
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
-    let hasCachedUser = false;
 
-    const initAuth = async () => {
+    const initAuth = () => {
       // Load dynamic iframe hosts from DB on app init
       fetchIframeHostsFromDB().catch(() => { });
 
       try {
-        // Try to restore user from localStorage cache first for fast UI
+        // Try to restore user from localStorage cache first for instant UI
         const cachedUser = window.localStorage.getItem('texa_current_user');
         if (cachedUser) {
           try {
             const parsed = JSON.parse(cachedUser);
             if (parsed && parsed.id && parsed.email) {
               setUser(parsed);
-              hasCachedUser = true;
-              // Set loading to false immediately - show UI with cached user
-              // Supabase will update the user in background if needed
-              setLoading(false);
+              setLoading(false); // Show UI immediately with cached user
             }
           } catch (e) {
             // Invalid cached user, ignore
           }
         }
 
+        // onAuthChange is the SINGLE source of truth for auth state
+        // It handles INITIAL_SESSION, SIGNED_IN, TOKEN_REFRESHED, SIGNED_OUT
+        // and has a 3s fallback if INITIAL_SESSION doesn't fire
         unsubscribe = onAuthChange(async (texaUser) => {
           try {
             setUser(texaUser);
             setLoading(false);
 
             if (texaUser) {
-              // Sync with extension - using Supabase session
+              // Sync with extension - get access token from Supabase session
               const { getSession } = await import('./services/supabaseAuthService');
               const session = await getSession();
               const accessToken = session?.access_token || null;
 
-              // Save to localStorage for extension to read directly
+              // Save to localStorage for extension to read
               if (accessToken) {
                 window.localStorage.setItem('texa_id_token', accessToken);
                 window.localStorage.setItem('texa_user_email', texaUser.email || '');
@@ -335,7 +334,7 @@ const App: React.FC = () => {
                 window.localStorage.setItem('texa_current_user', JSON.stringify(texaUser));
               }
 
-              // Send complete user profile to extension via postMessage
+              // Send user profile to extension via postMessage
               window.postMessage({
                 source: 'TEXA_DASHBOARD',
                 type: 'TEXA_LOGIN_SYNC',
@@ -354,32 +353,31 @@ const App: React.FC = () => {
                 }
               }, window.location.origin);
             } else {
-              // Clear localStorage cache if not logged in
-              window.localStorage.removeItem('texa_current_user');
+              // User signed out — clear all cached data
+              clearLocalAuthData();
             }
           } catch (error) {
-            console.error('Supabase auth sync error (continuing without auth):', error);
+            console.error('TEXA auth sync error:', error);
             setLoading(false);
           }
         });
       } catch (error) {
-        console.error('Supabase Auth init error (continuing without auth):', error);
+        console.error('TEXA Auth init error:', error);
         setUser(null);
         setLoading(false);
       }
     };
 
-    // Set timeout to ensure app loads even if Supabase fails (3 seconds is enough)
+    // Safety timeout — ensure app loads even if Supabase is unreachable
     const timeoutId = setTimeout(() => {
       if (loading) {
-        console.warn('Supabase taking too long, loading app with cached user if available');
+        console.warn('⚠️ TEXA: Auth taking too long, loading app...');
         setLoading(false);
       }
-    }, 3000);
+    }, 4000);
 
     initAuth();
 
-    // Cleanup subscription
     return () => {
       clearTimeout(timeoutId);
       if (unsubscribe) unsubscribe();
@@ -390,18 +388,23 @@ const App: React.FC = () => {
     setUser(userData);
   };
 
+  // Clear all auth-related localStorage data
+  const clearLocalAuthData = () => {
+    window.localStorage.removeItem('texa_id_token');
+    window.localStorage.removeItem('texa_user_email');
+    window.localStorage.removeItem('texa_user_role');
+    window.localStorage.removeItem('texa_user_name');
+    window.localStorage.removeItem('texa_subscription_end');
+    window.localStorage.removeItem('texa_current_user');
+  };
+
   const handleLogout = async () => {
+    // Instant UI feedback — set user to null immediately
+    setUser(null);
+    clearLocalAuthData();
+
     try {
       await logOut();
-      setUser(null);
-
-      // Clear localStorage
-      window.localStorage.removeItem('texa_id_token');
-      window.localStorage.removeItem('texa_user_email');
-      window.localStorage.removeItem('texa_user_role');
-      window.localStorage.removeItem('texa_user_name');
-      window.localStorage.removeItem('texa_subscription_end');
-      window.localStorage.removeItem('texa_current_user');
 
       // Notify extension about logout
       window.postMessage({
@@ -410,6 +413,7 @@ const App: React.FC = () => {
       }, window.location.origin);
     } catch (error) {
       console.error('Logout error:', error);
+      // localStorage already cleared above, so logout is "complete" from UI perspective
     }
   };
 

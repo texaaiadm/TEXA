@@ -296,8 +296,8 @@ const App: React.FC = () => {
       // Load dynamic iframe hosts from DB on app init
       fetchIframeHostsFromDB().catch(() => { });
 
-      // Track whether we've ever had a confirmed user from Supabase
-      let hadConfirmedUser = false;
+      // Track if Supabase has EXPLICITLY confirmed or denied user (not cache)
+      let supabaseHasResponded = false;
 
       try {
         // Try to restore user from localStorage cache first for instant UI
@@ -308,10 +308,11 @@ const App: React.FC = () => {
             if (parsed && parsed.id && parsed.email) {
               setUser(parsed);
               setLoading(false); // Show UI immediately with cached user
-              hadConfirmedUser = true;  // We had a cached user
+              console.log('🔐 TEXA: Showing cached user while auth initializes');
             }
           } catch (e) {
-            // Invalid cached user, ignore
+            // Invalid cached user, clear it
+            window.localStorage.removeItem('texa_current_user');
           }
         }
 
@@ -319,8 +320,8 @@ const App: React.FC = () => {
         unsubscribe = onAuthChange(async (texaUser) => {
           try {
             if (texaUser) {
-              // User confirmed by Supabase — update state + cache
-              hadConfirmedUser = true;
+              // Supabase confirmed user — update state + cache
+              supabaseHasResponded = true;
               setUser(texaUser);
               setLoading(false);
 
@@ -361,15 +362,27 @@ const App: React.FC = () => {
                 }
               });
             } else {
-              // Supabase says no user
-              // Only clear state if we PREVIOUSLY had a confirmed user (actual sign-out)
-              // or we never had a cached user (genuinely not logged in)
-              if (hadConfirmedUser || !window.localStorage.getItem('texa_current_user')) {
+              // Supabase says null
+              const hasCachedUser = !!window.localStorage.getItem('texa_current_user');
+
+              if (supabaseHasResponded && hasCachedUser) {
+                // Supabase PREVIOUSLY confirmed user, now says null = explicit logout
+                console.log('🔐 TEXA: User logged out by Supabase');
+                supabaseHasResponded = true;
                 setUser(null);
                 clearLocalAuthData();
+              } else if (!hasCachedUser) {
+                // No cache exists and Supabase says null = genuinely not logged in
+                console.log('🔐 TEXA: No user session found');
+                supabaseHasResponded = true;
+                setUser(null);
+                clearLocalAuthData();
+              } else {
+                // We have cached user but Supabase hasn't confirmed yet
+                // Keep showing cached user (graceful degradation during slow network)
+                console.log('🔐 TEXA: Keeping cached user visible during auth init');
               }
-              // If we have a cached user but Supabase hasn't confirmed yet, 
-              // keep the cached user visible — Supabase might still be initializing
+
               setLoading(false);
             }
           } catch (error) {

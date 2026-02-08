@@ -13,88 +13,69 @@ const hasActiveSubscription = (user: TexaUser | null) => {
 const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
   const { toolId } = useParams();
   const [tool, setTool] = useState<CatalogItem | null>(null);
-  const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
-  const [accessChecked, setAccessChecked] = useState(false);
+  const [ready, setReady] = useState(false);       // Both access + tool fetched
+  const [denied, setDenied] = useState(false);      // Access denied
+  const [iframeLoaded, setIframeLoaded] = useState(false);
 
-  // Check subscription first (instant check)
   const hasSubscription = useMemo(() => hasActiveSubscription(user), [user]);
 
-  // Check tool access (subscription OR individual purchase)
+  // Single effect: fetch tool AND check access in PARALLEL
   useEffect(() => {
     let stopped = false;
-    const checkAccess = async () => {
+    setReady(false);
+    setDenied(false);
+    setIframeLoaded(false);
+
+    const init = async () => {
       if (!user || !toolId) {
-        setHasAccess(false);
-        setAccessChecked(true);
+        setDenied(true);
         return;
       }
 
-      // If user has subscription, they have access to all tools
-      if (hasSubscription) {
-        setHasAccess(true);
-        setAccessChecked(true);
+      // Run tool fetch and access check concurrently
+      const [toolResult, accessResult] = await Promise.all([
+        getCatalogItem(toolId).catch(() => null),
+        hasSubscription
+          ? Promise.resolve(true)
+          : canAccessTool(user, toolId).catch(() => false)
+      ]);
+
+      if (stopped) return;
+
+      if (!accessResult) {
+        setDenied(true);
         return;
       }
 
-      // Check individual tool access
-      try {
-        const access = await canAccessTool(user, toolId);
-        if (!stopped) {
-          setHasAccess(access);
-          setAccessChecked(true);
-        }
-      } catch (error) {
-        console.error('Error checking tool access:', error);
-        if (!stopped) {
-          setHasAccess(false);
-          setAccessChecked(true);
-        }
-      }
+      setTool(toolResult);
+      setHasAccess(true);
+      setReady(true);
     };
-    checkAccess();
+
+    init();
     return () => { stopped = true; };
   }, [user, toolId, hasSubscription]);
 
-  // Fetch tool data
-  useEffect(() => {
-    let stopped = false;
-    const run = async () => {
-      if (!toolId) return;
-      setLoading(true);
-      const found = await getCatalogItem(toolId);
-      if (stopped) return;
-      setTool(found);
-      setLoading(false);
-    };
-    void run();
-    return () => {
-      stopped = true;
-    };
-  }, [toolId]);
-
   if (!user) return <Navigate to="/login" replace />;
+  if (denied) return <Navigate to="/" replace />;
 
-  // Wait for access check before redirecting
-  if (!accessChecked) {
+  // Compact loading state
+  if (!ready) {
     return (
-      <div className="flex items-center justify-center min-h-[70vh]">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-400">Memeriksa akses...</p>
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/5 animate-pulse" />
+            <div className="w-32 h-5 rounded-lg bg-white/5 animate-pulse" />
+          </div>
+          <div className="w-24 h-8 rounded-xl bg-white/5 animate-pulse" />
         </div>
-      </div>
-    );
-  }
-
-  if (!hasAccess) return <Navigate to="/" replace />;
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[70vh]">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-400">Memuat tool...</p>
+        <div className="w-full h-[86vh] rounded-2xl bg-white/[0.02] border border-white/10 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <p className="text-slate-500 text-sm">Memuat tool...</p>
+          </div>
         </div>
       </div>
     );
@@ -135,14 +116,26 @@ const ToolIframePage: React.FC<{ user: TexaUser | null }> = ({ user }) => {
         </div>
       </div>
 
-      <iframe
-        title={tool.name}
-        src={tool.targetUrl}
-        className="w-full h-[86vh] rounded-2xl border border-white/10 bg-white"
-      />
+      {/* Iframe with loading overlay */}
+      <div className="relative">
+        {!iframeLoaded && (
+          <div className="absolute inset-0 z-10 rounded-2xl bg-slate-900/80 border border-white/10 flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              <p className="text-slate-400 text-sm font-bold">Memuat {tool.name}...</p>
+            </div>
+          </div>
+        )}
+        <iframe
+          title={tool.name}
+          src={tool.targetUrl}
+          onLoad={() => setIframeLoaded(true)}
+          className="w-full h-[86vh] rounded-2xl border border-white/10 bg-white"
+          allow="clipboard-read; clipboard-write"
+        />
+      </div>
     </div>
   );
 };
 
 export default ToolIframePage;
-

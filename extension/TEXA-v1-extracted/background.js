@@ -941,89 +941,121 @@ async function handleOpenTool(data) {
     console.log('🔍 TEXA handleOpenTool raw data:', JSON.stringify(data, null, 2));
 
     const { targetUrl, apiUrl, cookiesData, authHeader, idToken } = data;
-    console.log('🔍 TEXA: targetUrl value:', targetUrl, 'type:', typeof targetUrl);
+    console.log('🔍 TEXA: targetUrl:', targetUrl, 'apiUrl:', apiUrl, 'hasCookies:', !!cookiesData);
 
     const safeTargetUrl = normalizeTargetUrl(targetUrl);
-
-    console.log('🚀 TEXA: Fast opening tool:', safeTargetUrl);
 
     if (!safeTargetUrl) {
         console.log('❌ TEXA: normalizeTargetUrl returned null for:', targetUrl);
         return { success: false, error: 'Invalid target URL' };
     }
 
-    // OPTIMIZATION: Open tab IMMEDIATELY first for instant feedback
+    console.log('🚀 TEXA: Opening tool:', safeTargetUrl);
+
+    // STEP 1: Open tab to about:blank for instant user feedback
     let tab;
     try {
-        tab = await chrome.tabs.create({ url: safeTargetUrl });
-        console.log('✅ TEXA: Tab opened instantly:', tab?.id);
+        tab = await chrome.tabs.create({ url: 'about:blank', active: true });
+        console.log('✅ TEXA: Tab created:', tab?.id);
     } catch (tabError) {
         console.error('❌ TEXA: Tab creation failed:', tabError.message);
         return { success: false, error: `Failed to create tab: ${tabError.message}` };
     }
 
-    // OPTIMIZATION: Inject cookies in background while tab is loading
-    let cookiesInjected = 0;
-    const cookiePromises = [];
+    // STEP 2: Clear ALL existing cookies for the target URL domain
+    console.log('🧹 TEXA: Clearing old cookies for:', safeTargetUrl);
+    await clearCookiesForTarget(safeTargetUrl);
 
-    // Collect cookies from cookiesData
+    // Also clear cookies for the base domain (without www, etc.)
+    try {
+        const urlObj = new URL(safeTargetUrl);
+        const baseDomain = urlObj.hostname.replace(/^www\./, '');
+        const domainUrl = `${urlObj.protocol}//${baseDomain}`;
+        if (domainUrl !== safeTargetUrl) {
+            await clearCookiesForTarget(domainUrl);
+        }
+        // Also clear with dot-prefixed domain
+        const dotDomainUrl = `${urlObj.protocol}//.${baseDomain}`;
+        await clearCookiesForTarget(dotDomainUrl);
+    } catch (e) {
+        console.log('⚠️ TEXA: Extra domain clear error:', e.message);
+    }
+
+    // STEP 3: Collect cookies from all sources
+    let allCookies = [];
+    let cookiesInjected = 0;
+
+    // Source 1: Direct cookiesData from tool settings
     if (cookiesData) {
         try {
-            const cookies = parseCookiesData(cookiesData);
-            for (const cookie of cookies) {
-                cookiePromises.push(
-                    setCookie(cookie, safeTargetUrl)
-                        .then(() => { cookiesInjected++; })
-                        .catch(() => { }) // Silently ignore failed cookies
-                );
-            }
+            const directCookies = parseCookiesData(cookiesData);
+            console.log('📦 TEXA: cookiesData has', directCookies.length, 'cookies');
+            allCookies.push(...directCookies);
         } catch (e) {
-            console.log('⚠️ TEXA: cookiesData parse error');
+            console.log('⚠️ TEXA: cookiesData parse error:', e.message);
         }
     }
 
-    // Collect cookies from API (in parallel with cookiesData)
+    // Source 2: Fetch cookies from API URL (e.g. Firestore)
     if (apiUrl) {
-        const apiCookiePromise = (async () => {
-            try {
-                const headers = {};
-                if (authHeader) {
-                    headers['Authorization'] = authHeader;
-                } else if (idToken) {
-                    headers['Authorization'] = `Bearer ${idToken}`;
-                }
-
-                const response = await fetch(apiUrl, {
-                    headers: Object.keys(headers).length > 0 ? headers : undefined
-                });
-
-                if (response.ok) {
-                    const apiData = await response.json();
-                    const cookies = extractCookiesFromAPI(apiData);
-
-                    await Promise.all(cookies.map(cookie =>
-                        setCookie(cookie, safeTargetUrl)
-                            .then(() => { cookiesInjected++; })
-                            .catch(() => { })
-                    ));
-                }
-            } catch (e) {
-                // Silently continue - cookies are optional
+        try {
+            console.log('🌐 TEXA: Fetching cookies from API:', apiUrl);
+            const headers = {};
+            if (authHeader) {
+                headers['Authorization'] = authHeader;
+            } else if (idToken) {
+                headers['Authorization'] = `Bearer ${idToken}`;
             }
-        })();
-        cookiePromises.push(apiCookiePromise);
+
+            const response = await fetch(apiUrl, {
+                headers: Object.keys(headers).length > 0 ? headers : undefined
+            });
+
+            console.log('🌐 TEXA: API response status:', response.status);
+
+            if (response.ok) {
+                const apiData = await response.json();
+                console.log('🌐 TEXA: API response keys:', Object.keys(apiData));
+                const apiCookies = extractCookiesFromAPI(apiData);
+                console.log('🌐 TEXA: API returned', apiCookies.length, 'cookies');
+                allCookies.push(...apiCookies);
+            } else {
+                const errorText = await response.text().catch(() => 'unknown');
+                console.error('❌ TEXA: API fetch failed:', response.status, errorText);
+            }
+        } catch (e) {
+            console.error('❌ TEXA: API fetch error:', e.message);
+        }
     }
 
-    // Wait for all cookies to be set (but tab is already open!)
-    if (cookiePromises.length > 0) {
-        await Promise.all(cookiePromises);
-        console.log(`🍪 TEXA: ${cookiesInjected} cookies injected`);
+    // STEP 4: Inject all collected cookies
+    console.log('🍪 TEXA: Total cookies to inject:', allCookies.length);
 
-        // Refresh tab to apply cookies if any were injected
-        if (cookiesInjected > 0 && tab?.id) {
-            try {
-                await chrome.tabs.reload(tab.id);
-            } catch (e) { }
+    if (allCookies.length > 0) {
+        const results = await Promise.allSettled(
+            allCookies.map(cookie => setCookie(cookie, safeTargetUrl))
+        );
+
+        cookiesInjected = results.filter(r => r.status === 'fulfilled').length;
+        const failed = results.filter(r => r.status === 'rejected');
+
+        console.log(`🍪 TEXA: ${cookiesInjected}/${allCookies.length} cookies injected`);
+        if (failed.length > 0) {
+            console.log('⚠️ TEXA: Failed cookies:', failed.map(r => r.reason?.message || 'unknown'));
+        }
+    }
+
+    // STEP 5: Navigate tab to the actual target URL (cookies are already set!)
+    try {
+        await chrome.tabs.update(tab.id, { url: safeTargetUrl });
+        console.log('✅ TEXA: Tab navigated to:', safeTargetUrl);
+    } catch (e) {
+        console.error('❌ TEXA: Tab navigation failed:', e.message);
+        // Fallback: try creating a new tab
+        try {
+            tab = await chrome.tabs.create({ url: safeTargetUrl });
+        } catch (e2) {
+            return { success: false, error: `Failed to navigate: ${e.message}` };
         }
     }
 
@@ -1044,7 +1076,7 @@ async function handleOpenTool(data) {
         });
     }
 
-    return { success: true, cookiesInjected };
+    return { success: true, cookiesInjected, totalCookies: allCookies.length };
 }
 
 // Parse cookiesData string (JSON array) from tool settings
@@ -1078,6 +1110,8 @@ function parseCookiesData(cookiesData) {
 
 // Extract cookies from API response (handles various formats)
 function extractCookiesFromAPI(data) {
+    console.log('🔍 TEXA extractCookiesFromAPI: data type:', typeof data, 'hasFields:', !!data.fields);
+
     // Handle Firestore format
     if (data.fields) {
         for (const key in data.fields) {

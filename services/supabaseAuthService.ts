@@ -322,31 +322,48 @@ export const signInWithGoogle = async (): Promise<{ user: TexaUser | null; error
                             const refresh_token = hashParams.get('refresh_token');
 
                             if (access_token && refresh_token) {
+                                // Mark resolved BEFORE async calls to prevent race
+                                if (resolved) return;
+                                resolved = true;
+
                                 subscription.unsubscribe();
                                 cleanup();
                                 closePopupAndFocus();
 
+                                console.log('🔐 TEXA Auth: Setting session with tokens...');
                                 const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
                                     access_token,
                                     refresh_token
                                 });
 
                                 if (sessionError || !sessionData.session) {
-                                    if (!resolved) {
-                                        resolved = true;
-                                        resolve({ user: null, error: sessionError?.message || 'Failed to set session' });
-                                    }
+                                    console.error('❌ TEXA Auth: setSession failed:', sessionError?.message);
+                                    resolve({ user: null, error: sessionError?.message || 'Failed to set session' });
                                     return;
                                 }
 
-                                await finishLogin(sessionData.session);
+                                console.log('🔐 TEXA Auth: Session set, finishing login...');
+                                try {
+                                    await finishLogin(sessionData.session);
+                                } catch (finishError: any) {
+                                    console.error('❌ TEXA Auth: finishLogin failed:', finishError);
+                                    resolve({ user: null, error: finishError.message || 'Failed to complete login' });
+                                }
                             }
                         }
-                    } catch (e) {
-                        // Cross-origin — can't read popup URL
+                    } catch (e: any) {
+                        // Expected: Cross-origin prevents reading popup.location.href
+                        // Silently ignore unless it's NOT a cross-origin error
+                        if (e.message && !e.message.includes('cross-origin')) {
+                            console.warn('⚠️ TEXA Auth: Popup URL check error:', e.message);
+                        }
                     }
-                } catch (e) {
-                    // COOP may block popup.closed check
+                } catch (e: any) {
+                    // Expected: COOP may block popup.closed check
+                    // Log only unexpected errors
+                    if (e.message && !e.message.includes('COOP') && !e.message.includes('Cross-Origin-Opener-Policy')) {
+                        console.warn('⚠️ TEXA Auth: Polling error:', e.message);
+                    }
                 }
             }, 500);
 
